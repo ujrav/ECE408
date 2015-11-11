@@ -27,7 +27,7 @@ __global__ void printCDF(float *input, int len){
 __global__ void printHisto(int *input, int len){
   if (threadIdx.x == 0){
     for (int i = 0; i < len; i++){
-      // printf("%d %d\n", i, input[i]);
+       printf("%d, ", input[i]);
     }
   }
 }
@@ -35,7 +35,7 @@ __global__ void printHisto(int *input, int len){
 __global__ void printBoth(int *input, float *input2, int len){
   if (threadIdx.x == 0){
     for (int i = 0; i < len; i++){
-      // printf("%d %d %f\n", i, input[i], input2[i]);
+      printf("%d %d %f\n", i, input[i], input2[i]);
     }
   }
 }
@@ -113,14 +113,11 @@ __global__ void hist(float *input, unsigned char* uchar, int *histo, int width, 
   __syncthreads();
 
   if (index < width * height){
-    uchar[3 * index] = r = (unsigned char) (255 * input[3 * index]);
-    uchar[3 * index + 1] = b = (unsigned char) (255 * input[3 * index + 1]);
-    uchar[3 * index + 2] = g = (unsigned char) (255 * input[3 * index + 2]);
+    uchar[3 * index] = r = (unsigned char) (255.0 * input[3 * index]);
+    uchar[3 * index + 1] = g = (unsigned char) (255.0 * input[3 * index + 1]);
+    uchar[3 * index + 2] = b = (unsigned char) (255.0 * input[3 * index + 2]);
 
     gray = (unsigned char) (0.21*r + 0.71*g + 0.07*b);
-
-    //if (index < 100 || width * height - index < 100)
-      // printf("%d %d %d %d\n", index, uchar[3 * index], uchar[3 * index + 1], uchar[3 * index + 2]);
 
     atomicAdd(&(histo_private[gray]), 1);
   }
@@ -139,13 +136,15 @@ __global__ void correct(unsigned char *uchar, float *output, float *cdf, int len
   float correctVal;
   float correctValSave;
   unsigned char val;
-  float cdfmin = cdf[0];
+  __shared__ float cdfmin;
+
+  if (tx == 0) 
+    cdfmin = cdf[0];
+
+  __syncthreads();
 
   index = bx * TILE_WIDTH + tx;
   if (index < len){
-    // if (index == 3*(85 * 256 + 85) + 1){
-    //   printf("lolololo\n");
-    // }
     val = uchar[index];
     correctVal = 255.0*(cdf[val] - cdfmin)/(1.0 - cdfmin);
     correctValSave = correctVal;
@@ -158,10 +157,9 @@ __global__ void correct(unsigned char *uchar, float *output, float *cdf, int len
     }
 
     output[index] = (float)(correctVal / 255.0);
-    // if (index == 3*(85 * 256 + 85) + 1){
-    //   printf("lalalala\n");
-    //   output[index] = .976;
-    // }
+    if (index == 3*(0 * 256 + 0) + 1){
+      printf("%f %f\n", correctValSave, cdfmin);
+    }
   }
 }
 //@@ insert code here
@@ -236,6 +234,7 @@ int main(int argc, char **argv) {
 
   wbTime_stop(Compute, "Performing CUDA histogram");
 
+  
   wbTime_start(Compute, "Performing CUDA CDF");
 
   scanFunc<<<DimGridS, DimBlockS>>>(deviceHisto, deviceCDF, imageWidth * imageHeight);

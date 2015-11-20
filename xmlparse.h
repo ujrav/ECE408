@@ -1,6 +1,10 @@
 #ifndef XMLPARSE_H
 #define XMLPARSE_H
 
-int parseClassifier(char *filename);
+#include "types.h"
+
+#define STAGENUM 25
+
+int parseClassifier(char *filename, int& featureNum, stageMeta_t*& stagesMeta, stage_t**& stages, feature_t*& features);
 
 #endif XMLPARSE_H

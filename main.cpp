@@ -10,14 +10,24 @@ using namespace rapidxml;
 
 unsigned char* readBMP(char* filename, int &width, int &height);
 void writeBMP(char* filename, unsigned char *data, int width, int height);
+int haar(unsigned char* image, int width, int height);
+uint32_t* integralImageCalc(unsigned char* img, int width, int height);
+
+static int featureNum;
+static stageMeta_t *stagesMeta;
+static stage_t **stages;
+static feature_t *features;
 
 int main(){
-	int i;
+	int i, j;
 	int width, height;
 	unsigned char *image;
 	unsigned char *gray;
 	unsigned char *imageGray;
-	parseClassifier("haarcascade_frontalface_default.xml");
+	uint32_t *integralImg;
+	int result = 0;
+
+	parseClassifier("haarcascade_frontalface_default.xml", featureNum, stagesMeta, stages, features);
 	image = readBMP("margaret.bmp", width, height);
 
 	gray = new unsigned char[width * height];
@@ -27,7 +37,11 @@ int main(){
 		imageGray[3 * i] = gray[i];
 		imageGray[3 * i + 1] = gray[i];
 		imageGray[3 * i + 2] = gray[i];
+
+		result += gray[i];
 	}
+
+	integralImg = integralImageCalc(gray, width, height);
 
 	writeBMP("gray.bmp", imageGray, width, height);
 
@@ -80,4 +94,38 @@ void writeBMP(char* filename, unsigned char *data, int width, int height){
 	fwrite(header, 1, 54, fp);
 	fwrite(data, 1, 3 * width*height, fp);
 	fclose(fp);
+}
+
+uint32_t* integralImageCalc(unsigned char* img, int width, int height){
+	uint32_t *data;
+	int i, j;
+
+	data = new uint32_t[height*width];
+
+	for (i = 0; i < width; i++){
+		data[i] = img[i];
+	}
+
+	for (i = 0; i < width; i++){
+		for (j = 0; j < height; j++){
+			if (j != 0){
+				data[i + j * width] = data[i + (j - 1) * width] + (uint32_t)img[i + j * width];
+			}
+		}
+	}
+
+	for (i = 0; i < width; i++){
+		for (j = 0; j < height; j++){
+			if (i != 0){
+				data[i + j * width] = data[(i - 1) + j * width] + data[i + j * width];
+			}
+		}
+	}
+
+	return data;
+}
+
+int haar(unsigned char* integralImg, int width, int height){
+
+	return 0;
 }

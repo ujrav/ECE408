@@ -3,8 +3,8 @@
 #include "RapidXML\rapidxml.hpp"
 #include "RapidXML\rapidxml_utils.hpp"
 #include "types.h"
+#include "xmlparse.h"
 
-#define STAGENUM 25
 
 using namespace std;
 using namespace rapidxml;
@@ -13,12 +13,8 @@ int parseStages(xml_node<> *root, stage_t **stages, stageMeta_t *stagesMeta);
 int parseFeatures(xml_node<> *root, feature_t *features, int& featureNum);
 int countFeatures(xml_node<> *root);
 
-int parseClassifier(char *filename){
+int parseClassifier(char *filename, int& featureNum, stageMeta_t*& stagesMeta, stage_t**& stages, feature_t*& features){
 	int i = 0;
-	int featureNum;
-	stageMeta_t *stagesMeta;
-	stage_t **stages;
-	feature_t *features;
 
 	stagesMeta = new stageMeta_t[STAGENUM]; // not arbitrary. fix later?
 	stages = new stage_t*[STAGENUM];

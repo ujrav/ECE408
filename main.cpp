@@ -10,8 +10,8 @@ using namespace rapidxml;
 
 unsigned char* readBMP(char* filename, int &width, int &height);
 void writeBMP(char* filename, unsigned char *data, int width, int height);
-int haar(unsigned char* image, int width, int height);
-uint32_t* integralImageCalc(unsigned char* img, int width, int height);
+int haarCascade(uint32_t const * image, uint32_t width, uint32_t height, uint32_t winX, uint32_t winY);
+uint32_t* integralImageCalc(unsigned char* integralImage, uint32_t width, uint32_t height);
 
 static int featureNum;
 static stageMeta_t *stagesMeta;
@@ -32,7 +32,7 @@ int main(){
 
 	gray = new unsigned char[width * height];
 	imageGray = new unsigned char[3 * width * height];
-	for (i = 0; i < width*height; i++){
+	for (int i = 0; i < width*height; ++i){
 		gray[i] = (image[3 * i] + image[3 * i + 1] + image[3 * i + 2]) / 3;
 		imageGray[3 * i] = gray[i];
 		imageGray[3 * i + 1] = gray[i];
@@ -45,7 +45,12 @@ int main(){
 
 	writeBMP("gray.bmp", imageGray, width, height);
 
-	cin >> i;
+	if (haarCascade(integralImg, width, height, 0, 0) == -1)
+		cout << "Cascade failed." << endl;
+
+
+	return 0;
+	//cin >> i;
 }
 
 unsigned char* readBMP(char* filename, int &width, int &height)
@@ -96,26 +101,25 @@ void writeBMP(char* filename, unsigned char *data, int width, int height){
 	fclose(fp);
 }
 
-uint32_t* integralImageCalc(unsigned char* img, int width, int height){
+uint32_t* integralImageCalc(unsigned char* img, uint32_t width, uint32_t height){
 	uint32_t *data;
-	int i, j;
 
 	data = new uint32_t[height*width];
 
-	for (i = 0; i < width; i++){
-		data[i] = img[i];
+	for (uint32_t i = 0; i < width; i++){
+		data[i] = (uint32_t)img[i];
 	}
 
-	for (i = 0; i < width; i++){
-		for (j = 0; j < height; j++){
+	for (uint32_t i = 0; i < width; i++){
+		for (uint32_t j = 0; j < height; j++){
 			if (j != 0){
 				data[i + j * width] = data[i + (j - 1) * width] + (uint32_t)img[i + j * width];
 			}
 		}
 	}
 
-	for (i = 0; i < width; i++){
-		for (j = 0; j < height; j++){
+	for (uint32_t i = 0; i < width; i++){
+		for (uint32_t j = 0; j < height; j++){
 			if (i != 0){
 				data[i + j * width] = data[(i - 1) + j * width] + data[i + j * width];
 			}
@@ -125,7 +129,62 @@ uint32_t* integralImageCalc(unsigned char* img, int width, int height){
 	return data;
 }
 
-int haar(unsigned char* integralImg, int width, int height){
+int haarCascade(uint32_t const * integralImg, uint32_t width, uint32_t height, uint32_t winX, uint32_t winY){
 
+	// for each stage in stagesMeta
+	for (uint32_t sIdx = 0; sIdx < STAGENUM; ++sIdx)
+	{
+
+		uint8_t stageSize = stagesMeta[sIdx].size;
+		float stageThreshold = stagesMeta[sIdx].threshold;
+		float featureSum = 0.0;
+
+		cout << "stage: " << sIdx << " stageSize: " << (uint32_t)stageSize << " stage thresh: " << stageThreshold << endl;
+
+		// for each classifier in a stage
+		for (uint32_t cIdx = 0; cIdx < stageSize; ++cIdx)
+		{
+			// get feature index and threshold
+			int fIdx = stages[sIdx][cIdx].featureIdx;
+			float featureThreshold = stages[sIdx][cIdx].threshold;
+
+			// get black rectangle of feature fIdx
+			uint8_t rectX = features[fIdx].black.x;
+			uint8_t rectY = features[fIdx].black.y;
+			uint8_t rectWidth = features[fIdx].black.w;
+			uint8_t rectHeight = features[fIdx].black.h;
+			int8_t rectWeight = features[fIdx].black.weight;
+
+			uint32_t a = integralImg[(winX + rectX) + (winY + rectY)*width];
+			uint32_t b = integralImg[(winX + rectX + rectWidth) + (winY + rectY)*width];
+			uint32_t c = integralImg[(winX + rectX) + (winY + rectY + rectHeight)*width];
+			uint32_t d = integralImg[(winX + rectX + rectWidth) + (winY + rectY + rectHeight)*width];
+
+			float black = float(rectWeight*(a + d - b - c));
+
+			// get white rectangle of feature fIdx
+			rectX = features[fIdx].white.x;
+			rectY = features[fIdx].white.y;
+			rectWidth = features[fIdx].white.w;
+			rectHeight = features[fIdx].white.h;
+			rectWeight = features[fIdx].white.weight;
+
+			a = integralImg[(winX + rectX) + (winY + rectY)*width];
+			b = integralImg[(winX + rectX + rectWidth) + (winY + rectY)*width];
+			c = integralImg[(winX + rectX) + (winY + rectY + rectHeight)*width];
+			d = integralImg[(winX + rectX + rectWidth) + (winY + rectY + rectHeight)*width];
+
+			float white = float(rectWeight*(a + d - b - c));
+
+			if (black + white > featureThreshold)
+				featureSum += stages[sIdx][cIdx].rightWeight;
+			else
+				featureSum += stages[sIdx][cIdx].leftWeight;
+		}
+
+		if (featureSum < stageThreshold)
+			return -1;
+
+	}
 	return 0;
 }

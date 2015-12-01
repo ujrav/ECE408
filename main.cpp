@@ -12,6 +12,9 @@ unsigned char* readBMP(char* filename, int &width, int &height);
 void writeBMP(char* filename, unsigned char *data, int width, int height);
 int haarCascade(uint32_t const * image, uint32_t width, uint32_t height, uint32_t winX, uint32_t winY);
 uint32_t* integralImageCalc(unsigned char* integralImage, uint32_t width, uint32_t height);
+float rectSum(uint32_t const* image, int imWidth, int inHeight, int x, int y, int w, int h);
+
+void integralImageVerify(uint32_t* integralImage, unsigned char* imageGray, int w, int h);
 
 static int featureNum;
 static stageMeta_t *stagesMeta;
@@ -45,12 +48,34 @@ int main(){
 
 	writeBMP("gray.bmp", imageGray, width, height);
 
+	integralImageVerify(integralImg, gray, width, height);
+
+	FILE *fp;
+
+	fp = fopen("gray.txt", "w");
+	for (i = 0; i < width; i++){
+		for (j = 0; j < height; j++){
+			fprintf(fp, "%d ", gray[i + j*width]);
+		}
+		fprintf(fp, "\n");
+	}
+	fclose(fp);
+
+	fp = fopen("grayInt.txt", "w");
+	for (i = 0; i < width; i++){
+		for (j = 0; j < height; j++){
+			fprintf(fp, "%5d ", integralImg[i + j*width]);
+		}
+		fprintf(fp, "\n");
+	}
+	fclose(fp);
+
 	if (haarCascade(integralImg, width, height, 0, 0) == -1)
 		cout << "Cascade failed." << endl;
 
+	cin >> i;
 
 	return 0;
-	//cin >> i;
 }
 
 unsigned char* readBMP(char* filename, int &width, int &height)
@@ -83,7 +108,6 @@ void writeBMP(char* filename, unsigned char *data, int width, int height){
 	FILE *fp;
 	unsigned char header[54] = { 0 };
 	fp = fopen(filename, "w");
-	printf("%x\n", fp);
 	header[0] = 'B';
 	header[1] = 'M';
 	*(int*)&header[2] = 54 + width * height * 3;
@@ -129,6 +153,25 @@ uint32_t* integralImageCalc(unsigned char* img, uint32_t width, uint32_t height)
 	return data;
 }
 
+void integralImageVerify(uint32_t* integralImage, unsigned char* imageGray, int w, int h){
+	int i, j, x, y;
+	int sum;
+
+	for (x = 0; x < w; x++){
+		for (y = 0; y < h; y++){
+			sum = 0;
+			for (i = 0; i <= x; i++){
+				for (j = 0; j <= y; j++){
+					sum += imageGray[i + j*w];
+				}
+			}
+			if (sum != integralImage[x + y * w]){
+				printf("integral image failed at %d %d\n sum = %d integralimage = %d\n", x, y, sum, integralImage[x + y * w]);
+			}
+		}
+	}
+}
+
 int haarCascade(uint32_t const * integralImg, uint32_t width, uint32_t height, uint32_t winX, uint32_t winY){
 
 	// for each stage in stagesMeta
@@ -138,6 +181,7 @@ int haarCascade(uint32_t const * integralImg, uint32_t width, uint32_t height, u
 		uint8_t stageSize = stagesMeta[sIdx].size;
 		float stageThreshold = stagesMeta[sIdx].threshold;
 		float featureSum = 0.0;
+		float sum;
 
 		cout << "stage: " << sIdx << " stageSize: " << (uint32_t)stageSize << " stage thresh: " << stageThreshold << endl;
 
@@ -155,12 +199,8 @@ int haarCascade(uint32_t const * integralImg, uint32_t width, uint32_t height, u
 			uint8_t rectHeight = features[fIdx].black.h;
 			int8_t rectWeight = features[fIdx].black.weight;
 
-			uint32_t a = integralImg[(winX + rectX) + (winY + rectY)*width];
-			uint32_t b = integralImg[(winX + rectX + rectWidth) + (winY + rectY)*width];
-			uint32_t c = integralImg[(winX + rectX) + (winY + rectY + rectHeight)*width];
-			uint32_t d = integralImg[(winX + rectX + rectWidth) + (winY + rectY + rectHeight)*width];
-
-			float black = float(rectWeight*(a + d - b - c));
+			float black = (float)rectWeight * rectSum(integralImg, width, height, winX + rectX, winY + rectY, rectWidth, rectHeight);
+			//printf("black a: %d b: %d c: %d d: %d  x:%d y:%d w:%d h:%d\n", a, b, c, d, rectX, rectY, rectWidth, rectHeight);
 
 			// get white rectangle of feature fIdx
 			rectX = features[fIdx].white.x;
@@ -169,17 +209,20 @@ int haarCascade(uint32_t const * integralImg, uint32_t width, uint32_t height, u
 			rectHeight = features[fIdx].white.h;
 			rectWeight = features[fIdx].white.weight;
 
-			a = integralImg[(winX + rectX) + (winY + rectY)*width];
-			b = integralImg[(winX + rectX + rectWidth) + (winY + rectY)*width];
-			c = integralImg[(winX + rectX) + (winY + rectY + rectHeight)*width];
-			d = integralImg[(winX + rectX + rectWidth) + (winY + rectY + rectHeight)*width];
+			float white = (float)rectWeight * rectSum(integralImg, width, height, winX + rectX, winY + rectY, rectWidth, rectHeight);
+			//printf("white a: %d b: %d c: %d d: %d  x:%d y:%d w:%d h:%d\n", a, b, c, d, rectX, rectY, rectWidth, rectHeight);
 
-			float white = float(rectWeight*(a + d - b - c));
+			sum = (black + white) / (24.0*24.0);
 
-			if (black + white > featureThreshold)
+			printf("Feature Sum: %f, Feature Threshold: %f Black: %f White: %f\n\n", sum, featureThreshold, black, white);
+			
+
+			if (sum > featureThreshold)
 				featureSum += stages[sIdx][cIdx].rightWeight;
 			else
 				featureSum += stages[sIdx][cIdx].leftWeight;
+
+			printf("featureSum %f \n", featureSum);
 		}
 
 		if (featureSum < stageThreshold)
@@ -187,4 +230,38 @@ int haarCascade(uint32_t const * integralImg, uint32_t width, uint32_t height, u
 
 	}
 	return 0;
+}
+
+float rectSum(uint32_t const* image, int imWidth, int inHeight, int x, int y, int w, int h){
+	uint32_t a, b, c, d;
+
+	if (x - 1 < 0 || y - 1 < 0){
+		a = 0;
+	}
+	else{
+		a = image[(x-1) + (y-1) * imWidth];
+	}
+
+	if (x - 1 + w < 0 || y - 1 < 0){
+		b = 0;
+	}
+	else{
+		b = image[(x - 1 + w) + (y - 1)*imWidth];
+	}
+
+	if (x - 1 < 0 || y - 1 + h < 0){
+		c = 0;
+	}
+	else{
+		c = image[(x - 1) + (y - 1 + h) * imWidth];
+	}
+
+	if (x - 1 + w < 0 || y - 1 + h < 0){
+		d = 0;
+	}
+	else{
+		d = image[(x - 1 + w) + (y - 1 + h) * imWidth];
+	}
+
+	return (float)(d - c - b + a);
 }

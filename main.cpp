@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <iostream>
+#include <math.h>
 #include "RapidXML\rapidxml.hpp"
 #include "RapidXML\rapidxml_utils.hpp"
 #include "xmlparse.h"
@@ -10,13 +11,14 @@ using namespace rapidxml;
 
 unsigned char* readBMP(char* filename, int &width, int &height);
 void writeBMP(char* filename, unsigned char *data, int width, int height);
-int haarCascade(uint32_t const * image, uint32_t width, uint32_t height, uint32_t winX, uint32_t winY);
-uint32_t* integralImageCalc(unsigned char* integralImage, uint32_t width, uint32_t height);
+int haarCascade(uint32_t const * image, int width, int height);
+int haarAtScale(int winX, int winY, float scale, const uint32_t* integralImg, int imgWidth, int imgHeight, int winWidth, int winHeight);
+uint32_t* integralImageCalc(unsigned char* integralImage, int width, int height);
 float rectSum(uint32_t const* image, int imWidth, int inHeight, int x, int y, int w, int h);
 
 void integralImageVerify(uint32_t* integralImage, unsigned char* imageGray, int w, int h);
 
-static int featureNum;
+static int stageNum;
 static stageMeta_t *stagesMeta;
 static stage_t **stages;
 static feature_t *features;
@@ -30,10 +32,9 @@ int main(){
 	uint32_t *integralImg;
 	int result = 0;
 
-	parseClassifier("haarcascade_frontalface_alt.xml", featureNum, stagesMeta, stages, features);
-	cin >> i;
-	return 0;
-	image = readBMP("margaret.bmp", width, height);
+	parseClassifier("haarcascade_frontalface_alt.xml", stageNum, stagesMeta, stages, features);
+
+	image = readBMP("house.bmp", width, height);
 
 	gray = new unsigned char[width * height];
 	imageGray = new unsigned char[3 * width * height];
@@ -72,7 +73,7 @@ int main(){
 	}
 	fclose(fp);
 
-	if (haarCascade(integralImg, width, height, 0, 0) == -1)
+	if (haarCascade(integralImg, width, height) == -1)
 		cout << "Cascade failed." << endl;
 
 	cin >> i;
@@ -127,7 +128,7 @@ void writeBMP(char* filename, unsigned char *data, int width, int height){
 	fclose(fp);
 }
 
-uint32_t* integralImageCalc(unsigned char* img, uint32_t width, uint32_t height){
+uint32_t* integralImageCalc(unsigned char* img, int width, int height){
 	uint32_t *data;
 
 	data = new uint32_t[height*width];
@@ -174,10 +175,40 @@ void integralImageVerify(uint32_t* integralImage, unsigned char* imageGray, int 
 	}
 }
 
-int haarCascade(uint32_t const * integralImg, uint32_t width, uint32_t height, uint32_t winX, uint32_t winY){
+int haarCascade(uint32_t const * integralImg, int width, int height){
 
+	float scaleWidth = ((float)width) / 20.0;
+	float scaleHeight = ((float)height) / 20.0;
+
+	float scaleStart = scaleHeight < scaleWidth ? scaleHeight : scaleWidth;
+
+	int scaleMaxItt = ceil(log(1 / scaleStart) / log(1.0 / 1.2));
+
+	for (int sIdx = 0; sIdx < scaleMaxItt; ++sIdx)
+	{
+		float scale = scaleStart*(float)powf(1.0 / 1.2, (float)(sIdx));
+		cout << "Scale: " << scale << endl;
+
+		int winWidth = 20 * scale;
+		int winHeight = 20 * scale;
+
+		for (int y = 0; y < height - 1 - winHeight; ++y){
+			for (int x = 0; x < width - 1 - winWidth; ++x)
+			{
+				if (haarAtScale(x, y, scale, integralImg, width, height, winWidth, winHeight)){
+					printf("Haar succeeded at %d, %d, %d, %d\n", x, y, winWidth, winHeight);
+				}
+			}
+		}
+	}
+	return 0;
+}
+
+int haarAtScale(int winX, int winY, float scale, const uint32_t* integralImg, int imgWidth, int imgHeight, int winWidth, int winHeight){
 	// for each stage in stagesMeta
-	for (uint32_t sIdx = 0; sIdx < STAGENUM; ++sIdx)
+	feature_t *feature;
+	float third = 0;
+	for (int sIdx = 0; sIdx < stageNum; ++sIdx)
 	{
 
 		uint8_t stageSize = stagesMeta[sIdx].size;
@@ -185,53 +216,63 @@ int haarCascade(uint32_t const * integralImg, uint32_t width, uint32_t height, u
 		float featureSum = 0.0;
 		float sum;
 
-		cout << "stage: " << sIdx << " stageSize: " << (uint32_t)stageSize << " stage thresh: " << stageThreshold << endl;
+		//cout << "stage: " << sIdx << " stageSize: " << (int)stageSize << " stage thresh: " << stageThreshold << endl;
 
 		// for each classifier in a stage
-		for (uint32_t cIdx = 0; cIdx < stageSize; ++cIdx)
+		for (int cIdx = 0; cIdx < stageSize; ++cIdx)
 		{
 			// get feature index and threshold
 			int fIdx = 0;
 			float featureThreshold = stages[sIdx][cIdx].threshold;
+			feature = &(stages[sIdx][cIdx].feature);
 
 			// get black rectangle of feature fIdx
-			uint8_t rectX = features[fIdx].black.x;
-			uint8_t rectY = features[fIdx].black.y;
-			uint8_t rectWidth = features[fIdx].black.w;
-			uint8_t rectHeight = features[fIdx].black.h;
-			int8_t rectWeight = features[fIdx].black.weight;
+			uint8_t rectX = feature->black.x * scale;
+			uint8_t rectY = feature->black.y * scale;
+			uint8_t rectWidth = feature->black.w * scale;
+			uint8_t rectHeight = feature->black.h * scale;
+			int8_t rectWeight = feature->black.weight;
 
-			float black = (float)rectWeight * rectSum(integralImg, width, height, winX + rectX, winY + rectY, rectWidth, rectHeight);
-			//printf("black a: %d b: %d c: %d d: %d  x:%d y:%d w:%d h:%d\n", a, b, c, d, rectX, rectY, rectWidth, rectHeight);
+			float black = (float)rectWeight * rectSum(integralImg, imgWidth, imgHeight, winX + rectX, winY + rectY, rectWidth, rectHeight);
+			//printf("black x:%d y:%d w:%d h:%d\n", rectX, rectY, rectWidth, rectHeight);
 
 			// get white rectangle of feature fIdx
-			rectX = features[fIdx].white.x;
-			rectY = features[fIdx].white.y;
-			rectWidth = features[fIdx].white.w;
-			rectHeight = features[fIdx].white.h;
-			rectWeight = features[fIdx].white.weight;
+			rectX = feature->white.x * scale;
+			rectY = feature->white.y * scale;
+			rectWidth = feature->white.w * scale;
+			rectHeight = feature->white.h * scale;
+			rectWeight = feature->white.weight;
 
-			float white = (float)rectWeight * rectSum(integralImg, width, height, winX + rectX, winY + rectY, rectWidth, rectHeight);
-			//printf("white a: %d b: %d c: %d d: %d  x:%d y:%d w:%d h:%d\n", a, b, c, d, rectX, rectY, rectWidth, rectHeight);
+			float white = (float)rectWeight * rectSum(integralImg, imgWidth, imgHeight, winX + rectX, winY + rectY, rectWidth, rectHeight);
+			//printf("white x:%d y:%d w:%d h:%d\n", rectX, rectY, rectWidth, rectHeight);
 
-			sum = (black + white) / (24.0*24.0);
+			if (feature->third.weight){
+				rectX = feature->third.x * scale;
+				rectY = feature->third.y * scale;
+				rectWidth = feature->third.w * scale;
+				rectHeight = feature->third.h * scale;
+				rectWeight = feature->third.weight * scale;
+				third = (float)rectWeight * rectSum(integralImg, imgWidth, imgHeight, winX + rectX, winY + rectY, rectWidth, rectHeight);
+			}
+
+			sum = (black + white + third) / (20*20*scale*scale);
 
 			printf("Feature Sum: %f, Feature Threshold: %f Black: %f White: %f\n\n", sum, featureThreshold, black, white);
-			
 
 			if (sum > featureThreshold)
 				featureSum += stages[sIdx][cIdx].rightWeight;
 			else
 				featureSum += stages[sIdx][cIdx].leftWeight;
 
-			printf("featureSum %f \n", featureSum);
+			//printf("featureSum %f \n", featureSum);
 		}
 
 		if (featureSum < stageThreshold)
-			return -1;
+			return 0;
+
+		return 1;
 
 	}
-	return 0;
 }
 
 float rectSum(uint32_t const* image, int imWidth, int inHeight, int x, int y, int w, int h){

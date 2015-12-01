@@ -30,7 +30,9 @@ int main(){
 	uint32_t *integralImg;
 	int result = 0;
 
-	parseClassifier("haarcascade_frontalface_default.xml", featureNum, stagesMeta, stages, features);
+	parseClassifier("haarcascade_frontalface_alt.xml", featureNum, stagesMeta, stages, features);
+	cin >> i;
+	return 0;
 	image = readBMP("margaret.bmp", width, height);
 
 	gray = new unsigned char[width * height];
@@ -189,7 +191,7 @@ int haarCascade(uint32_t const * integralImg, uint32_t width, uint32_t height, u
 		for (uint32_t cIdx = 0; cIdx < stageSize; ++cIdx)
 		{
 			// get feature index and threshold
-			int fIdx = stages[sIdx][cIdx].featureIdx;
+			int fIdx = 0;
 			float featureThreshold = stages[sIdx][cIdx].threshold;
 
 			// get black rectangle of feature fIdx

@@ -11,7 +11,7 @@ using namespace rapidxml;
 
 unsigned char* readBMP(char* filename, int &width, int &height);
 void writeBMP(char* filename, unsigned char *data, int width, int height);
-int haarCascade(float const * image, int width, int height);
+int haarCascade(unsigned char*  outputImage, float const * image, int width, int height);
 int haarAtScale(int winX, int winY, float scale, const float* integralImg, int imgWidth, int imgHeight, int winWidth, int winHeight);
 float* integralImageCalc(float* integralImage, int width, int height);
 float rectSum(float const* image, int imWidth, int inHeight, int x, int y, int w, int h);
@@ -35,7 +35,8 @@ int main(){
 
 	parseClassifier("haarcascade_frontalface_alt.xml", stageNum, stagesMeta, stages, features);
 
-	image = readBMP("margaretBig.bmp", width, height);
+	image = readBMP("besties.bmp", width, height);
+	
 
 	gray = new float[width * height];
 	imageGray = new unsigned char[3 * width * height];
@@ -50,9 +51,9 @@ int main(){
 		result += gray[i];
 	}
 
-	integralImg = integralImageCalc(gray, width, height);
+	writeBMP("output.bmp", image, width, height);
 
-	writeBMP("gray.bmp", imageGray, width, height);
+	integralImg = integralImageCalc(gray, width, height);
 
 	//integralImageVerify(integralImg, gray, width, height);
 
@@ -76,12 +77,11 @@ int main(){
 	}
 	fclose(fp);
 
-	rectSumVerRect(integralImg, gray, width, height, 10, 23, 47, 13);
-
-	if (haarCascade(integralImg, width, height) == -1)
+	if (haarCascade(image, integralImg, width, height) == -1)
 		cout << "Cascade failed." << endl;
 
-	cin >> i;
+	writeBMP("output.bmp", image, width, height);
+
 
 	return 0;
 }
@@ -127,8 +127,11 @@ unsigned char* readBMP(char* filename, int &width, int &height)
 
 void writeBMP(char* filename, unsigned char *data, int width, int height){
 	FILE *fp;
+	int i, j;
+	unsigned char red, green, blue;
 	unsigned char header[54] = { 0 };
-	fp = fopen(filename, "w");
+	unsigned char* output = new unsigned char[3 * width*height];
+	fp = fopen(filename, "wb");
 	header[0] = 'B';
 	header[1] = 'M';
 	*(int*)&header[2] = 54 + width * height * 3;
@@ -140,9 +143,25 @@ void writeBMP(char* filename, unsigned char *data, int width, int height){
 
 	header[0x1A] = 1;
 	header[0x1C] = 24;
-	header[0x22] = width * height * 3;
+	header[0x22] = 3 * width * height;
 	fwrite(header, 1, 54, fp);
-	fwrite(data, 1, 3 * width*height, fp);
+	for (i = 0; i < width; i++){
+		for (j = 0; j < height/2; j++){
+			red = data[3 * (i + j*width)];
+			green = data[3 * (i + j*width) + 1];
+			blue = data[3 * (i + j*width) + 2];
+
+			output[3 * (i + j*width) + 2] = data[3 * (i + (height - j - 1)*width)];
+			output[3 * (i + j*width) + 1] = data[3 * (i + (height - j - 1)*width) + 1];
+			output[3 * (i + j*width)] = data[3 * (i + (height - j - 1)*width) + 2];
+
+
+			output[3 * (i + (height - j - 1)*width)] = blue;
+			output[3 * (i + (height - j - 1)*width) + 1] = green;
+			output[3 * (i + (height - j - 1)*width) + 2] = red;
+		}
+	}
+	fwrite(output, 1, 3 * width*height, fp);
 	fclose(fp);
 }
 
@@ -193,8 +212,8 @@ void integralImageVerify(float* integralImage, float* imageGray, int w, int h){
 	}
 }
 
-int haarCascade(const float* integralImg, int width, int height){
-
+int haarCascade(unsigned char*  outputImage, const float* integralImg, int width, int height){
+	int i, j;
 	float scaleWidth = ((float)width) / 20.0;
 	float scaleHeight = ((float)height) / 20.0;
 	int step;
@@ -219,6 +238,14 @@ int haarCascade(const float* integralImg, int width, int height){
 
 				if (haarAtScale(x, y, scale, integralImg, width, height, winWidth, winHeight)){
 					printf("Haar succeeded at %d, %d, %d, %d\n", x, y, winWidth, winHeight);
+					for (i = 0; i < winWidth; i++){
+						outputImage[3 * (x + i + (y)*width) + 1] = 255;
+						outputImage[3 * (x + i + (y + winHeight - 1)*width) + 1] = 255;
+					}
+					for (j = 0; j < winHeight; j++){
+						outputImage[3 * (x + (y + j)*width) + 1] = 255;
+						outputImage[3 * (x + winWidth - 1 + (y + j)*width) + 1] = 255;
+					}
 				}
 			}
 		}

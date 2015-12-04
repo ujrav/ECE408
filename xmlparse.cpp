@@ -13,9 +13,8 @@ int parseStages(xml_node<> *root, stage_t **stages, stageMeta_t *stagesMeta);
 int countStages(xml_node<> *root);
 void writeStagesMeta(xml_node<> *root, stageMeta_t *&stagesMeta, int stagenum);
 
-int parseClassifier(char *filename, int& featureNum, stageMeta_t*& stagesMeta, stage_t**& stages, feature_t*& features){
+int parseClassifier(char *filename, int& stageNum, stageMeta_t*& stagesMeta, stage_t**& stages, feature_t*& features){
 	int i = 0;
-	int stageNum;
 
 	file<> xmlfile(filename); // default template is char
 	xml_document<> doc;

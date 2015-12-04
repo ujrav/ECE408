@@ -5,6 +5,6 @@
 
 #define STAGENUM 25
 
-int parseClassifier(char *filename, int& featureNum, stageMeta_t*& stagesMeta, stage_t**& stages, feature_t*& features);
+int parseClassifier(char *filename, int& stagesNum, stageMeta_t*& stagesMeta, stage_t**& stages, feature_t*& features);
 
 #endif XMLPARSE_H

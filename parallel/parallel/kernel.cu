@@ -30,6 +30,7 @@ float* integralImageCalc(float* integralImage, int width, int height);
 __device__ __host__ float rectSum(float const* image, int imWidth, int inHeight, int x, int y, int w, int h);
 
 int CudaHaarCascade(unsigned char*  outputImage, const float* integralImg, int width, int height);
+int CudaGrayScale(unsigned char* inputImage, float* grayImage, int width, int height);
 
 int deviceQuery();
 
@@ -227,6 +228,9 @@ __global__ void CudaHaarAtScale(float* deviceIntegralImage, int width, int heigh
     
 }
 
+//-------------------------------------------------------------------------
+// Simple Haar Cascade Kernel (no shared memory)
+//-------------------------------------------------------------------------
 __global__ void simpleCudaHaar(float* deviceIntegralImage, int width, int height, int winWidth, int winHeight, float scale, int step)
 {
 	int tx = threadIdx.x;
@@ -308,17 +312,33 @@ __global__ void simpleCudaHaar(float* deviceIntegralImage, int width, int height
 }
 
 
+//-------------------------------------------------------------------------
+// Convert RGB to Gray Scale kernel
+//-------------------------------------------------------------------------
+__global__ void convertRGBToGrayScale(unsigned char *uCharInputImage, float *grayOutputImage, int width, int height)
+{
+	int idx = blockIdx.x*blockDim.x + threadIdx.x;
+
+	if (idx<width*height) {
+		float r = (float)(uCharInputImage[3*idx]);
+		float g = (float)(uCharInputImage[3*idx + 1]);
+		float b = (float)(uCharInputImage[3*idx + 2]);
+
+		grayOutputImage[idx] = (0.2989f*r + 0.5870f*g + 0.1140f*b) / 255.0f;
+	}
+}
+
 int main(){
 	int width, height;
 	unsigned char *image;
-	float *gray;
+	float *gray, *cudaGray;
 	float *integralImg;
+
+	deviceQuery();
 
 	wbTime_start(Compute, "Parsing Haar Classifier");
 	parseClassifierFlat("haarcascade_frontalface_alt.xml", stageNum, featureNum, stagesMeta, stagesFlat, features);
 	wbTime_stop(Compute, "Parsing Haar Classifier");
-
-	deviceQuery();
 
 	image = readBMP("besties.bmp", width, height);
 
@@ -327,8 +347,13 @@ int main(){
 	convertGrayScale(image, gray, width, height);
 	wbTime_stop(Compute, "Converting serial gray scale conversion");
 
+	wbTime_start(Compute, "Converting CUDA gray scale conversion");
+	cudaGray = new float[width * height];
+	CudaGrayScale(image, cudaGray, width, height);
+	wbTime_stop(Compute, "Converting CUDA gray scale conversion");
+
 	wbTime_start(Compute, "Computing serial integral image");
-	integralImg = integralImageCalc(gray, width, height);
+	integralImg = integralImageCalc(cudaGray, width, height);
 	wbTime_stop(Compute, "Computing serial integral image");
 
 	//FILE *fp;
@@ -372,16 +397,17 @@ int main(){
 	// Free my people
 	for (int s = 0; s < STAGENUM; ++s)
 	{
-		delete [] stages[s];
+		delete[] stages[s];
 	}
-	delete [] stages;
-	delete [] stagesFlat;
-	delete [] stagesMeta;
-	//delete [] features;
+	delete[] stages;
+	delete[] stagesFlat;
+	delete[] stagesMeta;
+	//delete[] features;
 
-	delete [] gray;
-	delete [] integralImg;
-	delete [] image;
+	delete[] cudaGray;
+	delete[] gray;
+	delete[] integralImg;
+	delete[] image;
 
 	return 0;
 }
@@ -442,7 +468,7 @@ int haarCascade(unsigned char*  outputImage, const float* integralImg, int width
 			{
 
 				if (haarAtScale(x, y, scale, integralImg, width, height, winWidth, winHeight)){
-					//printf("Haar succeeded at %d, %d, %d, %d\n", x, y, winWidth, winHeight);
+					printf("Haar succeeded at %d, %d, %d, %d\n", x, y, winWidth, winHeight);
 					for (i = 0; i < winWidth; i++){
 						outputImage[3 * (x + i + (y)*width) + 1] = 255;
 						outputImage[3 * (x + i + (y + winHeight - 1)*width) + 1] = 255;
@@ -618,13 +644,13 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 		//if (width % ((int)(((float)TILE_DIVISON_WIDTH) * scale))) DimGrid.x++;
 		//if (height % ((int)(((float)TILE_DIVISON_WIDTH) * scale))) DimGrid.y++;
 
-		dim3 DimGrid(1, 1, 1);
+		dim3 DimGridSimple(1, 1, 1);
 		dim3 DimBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
 
-		printf("Kernel with dimensions %d x %d x %d launching\n", DimGrid.x, DimGrid.y, DimGrid.z);
+		//printf("Kernel with dimensions %d x %d x %d launching\n", DimGridSimple.x, DimGridSimple.y, DimGridSimple.z);
 
 		//CudaHaarAtScale<<<DimGrid, DimBlock>>>(deviceIntegralImage, width, height, winWidth, winHeight, scale, step);
-		simpleCudaHaar << <DimGrid, DimBlock >> >(deviceIntegralImage, width, height, winWidth, winHeight, scale, step);
+		simpleCudaHaar << <DimGridSimple, DimBlock >> >(deviceIntegralImage, width, height, winWidth, winHeight, scale, step);
 
 		// for (int y = 0; y <= height - 1 - winHeight; y += step){
 		// 	for (int x = 0; x <= width - 1 - winWidth; x += step)
@@ -658,6 +684,64 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 	}
 
 	cudaFree(deviceIntegralImage);
+
+	return 0;
+}
+
+int CudaGrayScale(unsigned char* inputImage, float* grayImage, int width, int height)
+{
+	cudaError_t cudaStatus;
+	unsigned char *deviceInputImage;
+	float *deviceGrayImage;
+
+	cudaStatus = cudaSetDevice(0);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
+	}
+
+	//allocate GPU memory
+	cudaStatus = cudaMalloc((void**)&deviceInputImage, 3 * width * height * sizeof(unsigned char));
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc of deviceInputImage failed!");
+	}
+
+	cudaStatus = cudaMalloc((void**)&deviceGrayImage, width * height * sizeof(float));
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc of deviceGrayImage failed!");
+	}
+
+	cudaStatus = cudaMemcpy(deviceInputImage, inputImage, 3 * width * height * sizeof(unsigned char), cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy of inputImage failed!");
+	}
+
+	dim3 DimGrid(ceil(width*height / float(BLOCK_SIZE)), 1, 1);
+	dim3 DimBlock(BLOCK_SIZE, 1, 1);
+
+	//printf("Kernel with dimensions %d x %d x %d launching\n", DimGrid.x, DimGrid.y, DimGrid.z);
+
+	convertRGBToGrayScale << <DimGrid, DimBlock >> >(deviceInputImage, deviceGrayImage, width, height);
+
+	cudaStatus = cudaMemcpy(grayImage, deviceGrayImage, width * height * sizeof(float), cudaMemcpyDeviceToHost);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy of deviceGrayImage failed!");
+	}
+
+	// Check for any errors launching the kernel
+	cudaStatus = cudaGetLastError();
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "convertRGBToGrayScale launch failed: %s\n", cudaGetErrorString(cudaStatus));
+	}
+
+	// cudaDeviceSynchronize waits for the kernel to finish, and returns
+	// any errors encountered during the launch.
+	cudaStatus = cudaDeviceSynchronize();
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching convertRGBToGrayScale!\n", cudaStatus);
+	}
+
+	cudaFree(deviceGrayImage);
+	cudaFree(deviceInputImage);
 
 	return 0;
 }

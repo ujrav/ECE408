@@ -1,7 +1,5 @@
-
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-
 #include <stdio.h>
 #include <iostream>
 #include <math.h>
@@ -13,33 +11,226 @@
 using namespace std;
 using namespace rapidxml;
 
+#define TILE_WIDTH 96
+#define TILE_CORE_WIDTH 56
+#define TILE_DIVISON_WIDTH 76
+#define BLOCK_SIZE 32
+#define MASK_SIZE 20
+
+#define STAGENUM 22
+#define FEATURENUM 2135
+
 unsigned char* readBMP(char* filename, int &width, int &height);
 void writeBMP(char* filename, unsigned char *data, int width, int height);
 int haarCascade(unsigned char*  outputImage, float const * image, int width, int height);
-int haarAtScale(int winX, int winY, float scale, const float* integralImg, int imgWidth, int imgHeight, int winWidth, int winHeight);
+int haarAtScale(int winX, int winY, float scale, const float* integralImage, int imgWidth, int imgHeight, int winWidth, int winHeight);
 float* integralImageCalc(float* integralImage, int width, int height);
 float rectSum(float const* image, int imWidth, int inHeight, int x, int y, int w, int h);
+
 
 void integralImageVerify(float* integralImage, float* imageGray, int w, int h);
 void rectSumVerRect(float const* integralImage, float* image, int imWidth, int imHeight, int x, int y, int w, int h);
 
+int CudaHaarCascade(unsigned char*  outputImage, const float* integralImg, int width, int height);
+
+int deviceQuery();
+
 static int stageNum;
+static int featureNum;
 static stageMeta_t *stagesMeta;
 static stage_t **stages;
+static stage_t *stagesFlat;
 static feature_t *features;
 
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
+__device__ __constant__ stage_t deviceStages[FEATURENUM];
+__device__ __constant__ stageMeta_t deviceStagesMeta[STAGENUM];
 
-__global__ void addKernel(int *c, const int *a, const int *b)
+__global__ void CudaHaarAtScale(float* deviceIntegralImage, int width, int height, int winWidth, int winHeight, float scale, int step)
 {
-    int i = threadIdx.x;
-    c[i] = a[i] + b[i];
+    int tx = threadIdx.x;
+    int ty = threadIdx.y;
+    int bx = blockIdx.x;
+    int by = blockIdx.y;
+    int x;
+    int y;
+    int originX;
+    int originY;
+    int stageIndex;
+    float a, b, c, d;
+
+
+    originX = ((float)bx)*((float)TILE_DIVISON_WIDTH)*scale;
+    originY = ((float)by)*((float)TILE_DIVISON_WIDTH)*scale;
+
+	for (int i = -1 * (MASK_SIZE*scale); i < TILE_CORE_WIDTH * scale; i += step*BLOCK_SIZE){
+		for (int j = -1 * (MASK_SIZE*scale); j < TILE_CORE_WIDTH * scale; j += step*BLOCK_SIZE){
+    		x = originX + (((float)tx) * scale) + i;
+    		y = originY + (((float)ty) * scale) + j;
+			if (x >= 0 && x <= width - winWidth - 1 && y >= 0 && y <= height - winHeight - 1 && x == 24 && y == 20 && winWidth == 81){
+				printf("%f %d %d testing window at %d %d %d %d %d %d\n",scale, i, j, x, y, bx, by, tx, ty);
+				feature_t *feature;
+				float third = 0;
+				bool result = true;
+				for (int sIdx = 0; sIdx < STAGENUM; ++sIdx)
+				{
+					uint8_t stageSize = deviceStagesMeta[sIdx].size;
+					float stageThreshold = deviceStagesMeta[sIdx].threshold;
+					float featureSum = 0.0;
+					float sum;
+
+					//cout << "stage: " << sIdx << " stageSize: " << (int)stageSize << " stage thresh: " << stageThreshold << endl;
+
+					// for each classifier in a stage
+					for (int cIdx = 0; cIdx < stageSize; ++cIdx)
+					{
+						stageIndex = deviceStagesMeta[sIdx].start + cIdx;
+						// get feature index and threshold
+						int fIdx = 0;
+						float featureThreshold = deviceStages[stageIndex].threshold;
+						feature = &(deviceStages[stageIndex].feature);
+
+						// get black rectangle of feature fIdx
+						uint8_t rectX = feature->black.x * scale + x;
+						uint8_t rectY = feature->black.y * scale + y;
+						uint8_t rectWidth = feature->black.w * scale;
+						uint8_t rectHeight = feature->black.h * scale;
+						int8_t rectWeight = feature->black.weight;
+
+						if (rectX - 1 < 0 || rectY - 1 < 0){
+							a = 0;
+						}
+						else{
+							a = deviceIntegralImage[(rectX - 1) + (rectY - 1) * width];
+						}
+
+						if (rectX - 1 + rectWidth< 0 || rectY - 1 < 0){
+							b = 0;
+						}
+						else{
+							b = deviceIntegralImage[(rectX - 1 + rectWidth) + (rectY - 1)*width];
+						}
+
+						if (rectX - 1 < 0 || y - 1 + rectHeight < 0){
+							c = 0;
+						}
+						else{
+							c = deviceIntegralImage[(rectX - 1) + (rectY - 1 + rectHeight) * width];
+						}
+
+						if (rectX - 1 + rectWidth< 0 || y - 1 + rectHeight < 0){
+							d = 0;
+						}
+						else{
+							d = deviceIntegralImage[(rectX - 1 + rectWidth) + (rectY - 1 + rectHeight) * width];
+						}
+						float black = d + a - b - c;
+						//printf("black x:%d y:%d w:%d h:%d\n", rectX, rectY, rectWidth, rectHeight);
+
+						// get white rectangle of feature fIdx
+						rectX = feature->white.x * scale + x;
+						rectY = feature->white.y * scale + y;
+						rectWidth = feature->white.w * scale;
+						rectHeight = feature->white.h * scale;
+						rectWeight = feature->white.weight;
+
+						if (rectX - 1 < 0 || rectY - 1 < 0){
+							a = 0;
+						}
+						else{
+							a = deviceIntegralImage[(rectX - 1) + (rectY - 1) * width];
+						}
+
+						if (rectX - 1 + rectWidth< 0 || rectY - 1 < 0){
+							b = 0;
+						}
+						else{
+							b = deviceIntegralImage[(rectX - 1 + rectWidth) + (rectY - 1)*width];
+						}
+
+						if (rectX - 1 < 0 || y - 1 + rectHeight < 0){
+							c = 0;
+						}
+						else{
+							c = deviceIntegralImage[(rectX - 1) + (rectY - 1 + rectHeight) * width];
+						}
+
+						if (rectX - 1 + rectWidth< 0 || y - 1 + rectHeight < 0){
+							d = 0;
+						}
+						else{
+							d = deviceIntegralImage[(rectX - 1 + rectWidth) + (rectY - 1 + rectHeight) * width];
+						}
+						float white = d + a - b - c;
+
+						third = 0;
+						if (feature->third.weight){
+							rectX = feature->third.x * scale;
+							rectY = feature->third.y * scale;
+							rectWidth = feature->third.w * scale;
+							rectHeight = feature->third.h * scale;
+							rectWeight = feature->third.weight;
+							if (rectX - 1 < 0 || rectY - 1 < 0){
+								a = 0;
+							}
+							else{
+								a = deviceIntegralImage[(rectX - 1) + (rectY - 1) * width];
+							}
+
+							if (rectX - 1 + rectWidth< 0 || rectY - 1 < 0){
+								b = 0;
+							}
+							else{
+								b = deviceIntegralImage[(rectX - 1 + rectWidth) + (rectY - 1)*width];
+							}
+
+							if (rectX - 1 < 0 || y - 1 + rectHeight < 0){
+								c = 0;
+							}
+							else{
+								c = deviceIntegralImage[(rectX - 1) + (rectY - 1 + rectHeight) * width];
+							}
+
+							if (rectX - 1 + rectWidth< 0 || y - 1 + rectHeight < 0){
+								d = 0;
+							}
+							else{
+								d = deviceIntegralImage[(rectX - 1 + rectWidth) + (rectY - 1 + rectHeight) * width];
+							}
+							float third = d + a - b - c;
+						}
+
+						sum = (black + white + third) / ((float)(winWidth * winHeight));
+						
+
+						if (sum > featureThreshold)
+							featureSum += deviceStages[stageIndex].rightWeight;
+						else
+							featureSum += deviceStages[stageIndex].leftWeight;
+
+						printf("Feature rect Sum: %f, Feature Threshold: %f Black: %f White: %f\n", sum, featureThreshold, black, white);
+						printf("Feature Sum %d on stage %d: %f, Stage Threshold: %f\n\n", cIdx, sIdx, featureSum, stageThreshold);
+
+					}
+
+					if (featureSum < stageThreshold){
+						result = false;
+						break;
+					}
+
+				}
+
+				if (result){
+					printf("Holy shit success?");
+				}
+
+			}
+    	}
+    }
+
+    
 }
 
-
-
-int main()
-{
+int main(){
 	int i, j;
 	int width, height;
 	unsigned char *image;
@@ -47,10 +238,15 @@ int main()
 	unsigned char *imageGray;
 	float *integralImg;
 	int result = 0;
+	
 
-	parseClassifier("haarcascade_frontalface_alt.xml", stageNum, stagesMeta, stages, features);
+	parseClassifierFlat("haarcascade_frontalface_alt.xml", stageNum, featureNum, stagesMeta, stagesFlat, features);
 
-	image = readBMP("besties.bmp", width, height);
+	deviceQuery();
+
+	
+
+	image = readBMP("margaretBig.bmp", width, height);
 
 
 	gray = new float[width * height];
@@ -61,148 +257,42 @@ int main()
 		imageGray[3 * i + 1] = gray[i] * 255;
 		imageGray[3 * i + 2] = gray[i] * 255;
 
-		if (i < 10)
-			printf("%d %d %d \n", image[3 * i], image[3 * i + 1], image[3 * i + 2]);
 		result += gray[i];
 	}
 
-	writeBMP("output.bmp", image, width, height);
-
 	integralImg = integralImageCalc(gray, width, height);
 
-	//integralImageVerify(integralImg, gray, width, height);
+	//FILE *fp;
 
-	FILE *fp;
+	//fp = fopen("gray.txt", "w");
+	//for (i = 0; i < width; i++){
+	//	for (j = 0; j < height; j++){
+	//		fprintf(fp, "%f ", gray[i + j*width]);
+	//	}
+	//	fprintf(fp, "\n");
+	//}
+	//fclose(fp);
 
-	fp = fopen("gray.txt", "w");
-	for (i = 0; i < width; i++){
-		for (j = 0; j < height; j++){
-			fprintf(fp, "%f ", gray[i + j*width]);
-		}
-		fprintf(fp, "\n");
-	}
-	fclose(fp);
+	//fp = fopen("grayInt.txt", "w");
+	//for (i = 0; i < width; i++){
+	//	for (j = 0; j < height; j++){
+	//		fprintf(fp, "%f ", integralImg[i + j*width]);
+	//	}
+	//	fprintf(fp, "\n");
+	//}
+	//fclose(fp);
 
-	fp = fopen("grayInt.txt", "w");
-	for (i = 0; i < width; i++){
-		for (j = 0; j < height; j++){
-			fprintf(fp, "%f ", integralImg[i + j*width]);
-		}
-		fprintf(fp, "\n");
-	}
-	fclose(fp);
 
-	if (haarCascade(image, integralImg, width, height) == -1)
+	if (CudaHaarCascade(image, integralImg, width, height) == -1)
 		cout << "Cascade failed." << endl;
 
-	writeBMP("output.bmp", image, width, height);
+	//writeBMP("output.bmp", image, width, height);
 
-    const int arraySize = 5;
-    const int a[arraySize] = { 1, 2, 3, 4, 5 };
-    const int b[arraySize] = { 10, 20, 30, 40, 50 };
-    int c[arraySize] = { 0 };
+	int a;
+	cin >> a;
 
-    // Add vectors in parallel.
-    cudaError_t cudaStatus = addWithCuda(c, a, b, arraySize);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addWithCuda failed!");
-        return 1;
-    }
-
-    printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
-        c[0], c[1], c[2], c[3], c[4]);
-
-    // cudaDeviceReset must be called before exiting in order for profiling and
-    // tracing tools such as Nsight and Visual Profiler to show complete traces.
-    cudaStatus = cudaDeviceReset();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceReset failed!");
-        return 1;
-    }
-
-    return 0;
+	return 0;
 }
-
-// Helper function for using CUDA to add vectors in parallel.
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
-{
-    int *dev_a = 0;
-    int *dev_b = 0;
-    int *dev_c = 0;
-    cudaError_t cudaStatus;
-
-    // Choose which GPU to run on, change this on a multi-GPU system.
-    cudaStatus = cudaSetDevice(0);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
-        goto Error;
-    }
-
-    // Allocate GPU buffers for three vectors (two input, one output)    .
-    cudaStatus = cudaMalloc((void**)&dev_c, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
-
-    cudaStatus = cudaMalloc((void**)&dev_a, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
-
-    cudaStatus = cudaMalloc((void**)&dev_b, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
-
-    // Copy input vectors from host memory to GPU buffers.
-    cudaStatus = cudaMemcpy(dev_a, a, size * sizeof(int), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-    cudaStatus = cudaMemcpy(dev_b, b, size * sizeof(int), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-    // Launch a kernel on the GPU with one thread for each element.
-    addKernel<<<1, size>>>(dev_c, dev_a, dev_b);
-
-    // Check for any errors launching the kernel
-    cudaStatus = cudaGetLastError();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
-        goto Error;
-    }
-    
-    // cudaDeviceSynchronize waits for the kernel to finish, and returns
-    // any errors encountered during the launch.
-    cudaStatus = cudaDeviceSynchronize();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
-        goto Error;
-    }
-
-    // Copy output vector from GPU buffer to host memory.
-    cudaStatus = cudaMemcpy(c, dev_c, size * sizeof(int), cudaMemcpyDeviceToHost);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-Error:
-    cudaFree(dev_c);
-    cudaFree(dev_a);
-    cudaFree(dev_b);
-    
-    return cudaStatus;
-}
-
 
 unsigned char* readBMP(char* filename, int &width, int &height)
 {
@@ -371,6 +461,99 @@ int haarCascade(unsigned char*  outputImage, const float* integralImg, int width
 	return 0;
 }
 
+int CudaHaarCascade(unsigned char*  outputImage, const float* integralImage, int width, int height){
+	int i, j;
+	float scaleWidth = ((float)width) / 20.0;
+	float scaleHeight = ((float)height) / 20.0;
+	int step;
+	float scale;
+	cudaError_t cudaStatus;
+	float *deviceIntegralImage;
+
+	float scaleStart = scaleHeight < scaleWidth ? scaleHeight : scaleWidth;
+
+	int scaleMaxItt = ceil(log(1 / scaleStart) / log(1.0 / 1.2));
+
+	cudaStatus = cudaSetDevice(0);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
+    }
+
+    //allocate GPU memory
+    cudaStatus = cudaMalloc((void**)&deviceIntegralImage, height * width * sizeof(float));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc of integralImage failed!");
+    }
+
+    // copy data to GPU memory
+	cudaStatus = cudaMemcpyToSymbol(deviceStagesMeta, stagesMeta, stageNum * sizeof(stageMeta_t), 0, cudaMemcpyHostToDevice);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy of StageMeta failed!");
+    }
+
+	cudaStatus = cudaMemcpyToSymbol(deviceStages, stagesFlat, featureNum * sizeof(stage_t), 0, cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy of StageMeta failed!");
+	}
+
+	cudaStatus = cudaMemcpy(deviceIntegralImage, integralImage, height * width * sizeof(float), cudaMemcpyHostToDevice);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy failed!");
+    }
+
+	for (int sIdx = 0; sIdx < scaleMaxItt; ++sIdx)
+	{
+		scale = scaleStart*(float)powf(1.0 / 1.2, (float)(sIdx));
+		cout << "Scale: " << scale << endl;
+
+		step = scale > 2 ? scale : 2;
+
+		int winWidth = 20 * scale;
+		int winHeight = 20 * scale;
+
+		dim3 DimGrid(width / ((int)(((float)TILE_DIVISON_WIDTH) * scale)), height / ((int)(((float)TILE_DIVISON_WIDTH) * scale)), 1);
+		if (width % ((int)(((float)TILE_DIVISON_WIDTH) * scale))) DimGrid.x++;
+		if (height % ((int)(((float)TILE_DIVISON_WIDTH) * scale))) DimGrid.y++;
+
+	    dim3 DimBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+
+	    printf("Kernel with dimensions %d x %d x %d launching\n", DimGrid.x, DimGrid.y, DimGrid.z);
+
+		CudaHaarAtScale<<<DimGrid, DimBlock>>>(deviceIntegralImage, width, height, winWidth, winHeight, scale, step);
+
+		// for (int y = 0; y <= height - 1 - winHeight; y += step){
+		// 	for (int x = 0; x <= width - 1 - winWidth; x += step)
+		// 	{
+
+		// 		if (haarAtScale(x, y, scale, integralImg, width, height, winWidth, winHeight)){
+		// 			printf("Haar succeeded at %d, %d, %d, %d\n", x, y, winWidth, winHeight);
+		// 			for (i = 0; i < winWidth; i++){
+		// 				outputImage[3 * (x + i + (y)*width) + 1] = 255;
+		// 				outputImage[3 * (x + i + (y + winHeight - 1)*width) + 1] = 255;
+		// 			}
+		// 			for (j = 0; j < winHeight; j++){
+		// 				outputImage[3 * (x + (y + j)*width) + 1] = 255;
+		// 				outputImage[3 * (x + winWidth - 1 + (y + j)*width) + 1] = 255;
+		// 			}
+		// 		}
+		// 	}
+		// }
+	}
+	// Check for any errors launching the kernel
+    cudaStatus = cudaGetLastError();
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "addKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+    }
+    
+    // cudaDeviceSynchronize waits for the kernel to finish, and returns
+    // any errors encountered during the launch.
+    cudaStatus = cudaDeviceSynchronize();
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
+    }
+	return 0;
+}
+
 int haarAtScale(int winX, int winY, float scale, const float* integralImg, int imgWidth, int imgHeight, int winWidth, int winHeight){
 	// for each stage in stagesMeta
 	feature_t *feature;
@@ -490,4 +673,44 @@ void rectSumVerRect(const float* integralImage, float* image, int imWidth, int i
 	}
 
 	printf("trueSum: %f\n", trueSum);
+}
+
+int deviceQuery(){
+	int deviceCount;
+
+	cudaGetDeviceCount(&deviceCount);
+
+	for (int dev = 0; dev < deviceCount; dev++) {
+		cudaDeviceProp deviceProp;
+
+		cudaGetDeviceProperties(&deviceProp, dev);
+
+		if (dev == 0) {
+			if (deviceProp.major == 9999 && deviceProp.minor == 9999) {
+				printf("No CUDA GPU has been detected\n");
+				return -1;
+			}
+			else if (deviceCount == 1) {
+				//@@ WbLog is a provided logging API (similar to Log4J).
+				//@@ The logging function wbLog takes a level which is either
+				//@@ OFF, FATAL, ERROR, WARN, INFO, DEBUG, or TRACE and a
+				//@@ message to be printed.
+				printf("There is 1 device supporting CUDA\n");
+			}
+			else {
+				printf("There are %d devices supporting CUDA\n", deviceCount);
+			}
+		}
+
+		printf("Device %s name: %s\n",dev, deviceProp.name);
+		printf(" Computational Capabilities: %d.%d\n", deviceProp.major, deviceProp.minor);
+		printf(" Maximum global memory size: %d \n",	deviceProp.totalGlobalMem);
+		printf(" Maximum constant memory size: %d\n", deviceProp.totalConstMem);
+		printf(" Maximum shared memory size per block: %d\n", deviceProp.sharedMemPerBlock);
+		printf(" Maximum block dimensions: %d x %d\n", deviceProp.maxThreadsDim[0], deviceProp.maxThreadsDim[1], deviceProp.maxThreadsDim[2]);
+		printf(" Maximum grid dimensions: %d x %d\n", deviceProp.maxGridSize[0], deviceProp.maxGridSize[1], deviceProp.maxGridSize[2]);
+		printf(" Warp size: %d \n", deviceProp.warpSize);
+	}
+
+	return 0;
 }

@@ -26,6 +26,7 @@ struct stage_t{
 
 struct stageMeta_t{
 	uint16_t size;
+	uint16_t start;
 	float threshold;
 };
 

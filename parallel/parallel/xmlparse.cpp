@@ -2,7 +2,6 @@
 #include <iostream>
 #include "RapidXML\rapidxml.hpp"
 #include "RapidXML\rapidxml_utils.hpp"
-#include "types.h"
 #include "xmlparse.h"
 
 

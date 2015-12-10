@@ -3,8 +3,6 @@
 
 #include "types.h"
 
-#define STAGENUM 25
-
 int parseClassifier(char *filename, int& stagesNum, stageMeta_t*& stagesMeta, stage_t**& stages, feature_t*& features);
 int parseClassifierFlat(char *filename, int& stageNum, int& featureNum, stageMeta_t*& stagesMeta, stage_t*& stagesFlat, feature_t*& features);
 

@@ -2,6 +2,9 @@
 #define BMP_H
 
 #include "types.h"
+#include <stdio.h>
+#include <iostream>
+#include <math.h>
 
 unsigned char* readBMP(char* filename, int &width, int &height);
 void writeBMP(char* filename, unsigned char *data, int width, int height);

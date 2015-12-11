@@ -30,4 +30,4 @@ struct stageMeta_t{
 	float threshold;
 };
 
-#endif
+#endif TYPES_H

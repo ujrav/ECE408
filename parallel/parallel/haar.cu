@@ -15,7 +15,7 @@ __device__ __constant__ stageMeta_t deviceStagesMeta[STAGENUM];
 //-------------------------------------------------------------------------
 // Naive Haar Cascade Kernel (one window scale, no shared memory)
 //-------------------------------------------------------------------------
-__global__ void naiveCudaHaarKernel(float* deviceIntegralImage, int width, int height, int winWidth, int winHeight, float scale, int step)
+__global__ void naiveCudaHaarKernel(float* deviceIntegralImage, int width, int height, int winWidth, int winHeight, float scale, int step, rectBig_t* deviceResults,int* deviceResultsNum)
 {
 	int tx = threadIdx.x;
 	int ty = threadIdx.y;
@@ -90,6 +90,11 @@ __global__ void naiveCudaHaarKernel(float* deviceIntegralImage, int width, int h
 
 		}
 		//printf("Passed at originX: %d originY: %d\n", originX, originY);
+		int old = atomicAdd(deviceResultsNum, 1);
+		deviceResults[old].x = originX;
+		deviceResults[old].y = originY;
+		deviceResults[old].w = winWidth;
+		deviceResults[old].h = winHeight;
 	}
 	return;
 
@@ -103,6 +108,11 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 	float scale;
 	cudaError_t cudaStatus;
 	float *deviceIntegralImage;
+
+	rectBig_t results[100];
+	int resultsNum = 0;
+	rectBig_t* deviceResults;
+	int* deviceResultsNum;
 
 	float scaleStart = scaleHeight < scaleWidth ? scaleHeight : scaleWidth;
 
@@ -120,6 +130,14 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc of integralImage failed!");
 	}
+	cudaStatus = cudaMalloc((void**)&deviceResults, 100 * sizeof(rectBig_t));
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc of integralImage failed!");
+	}
+	cudaStatus = cudaMalloc((void**)&deviceResultsNum, sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc of integralImage failed!");
+	}
 
 	// copy data to GPU memory
 	cudaStatus = cudaMemcpyToSymbol(deviceStagesMeta, stagesMeta, stageNum * sizeof(stageMeta_t), 0, cudaMemcpyHostToDevice);
@@ -133,6 +151,11 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 	}
 
 	cudaStatus = cudaMemcpy(deviceIntegralImage, integralImage, height * width * sizeof(float), cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy of integralImage failed!");
+	}
+
+	cudaStatus = cudaMemcpy(deviceResultsNum, &resultsNum, sizeof(int), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy of integralImage failed!");
 	}
@@ -157,7 +180,7 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 		//printf("naiveCudaHaarKernel with dimensions %d x %d x %d launching\n", DimGridSimple.x, DimGridSimple.y, DimGridSimple.z);
 
 		//CudaHaarAtScale<<<DimGrid, DimBlock>>>(deviceIntegralImage, width, height, winWidth, winHeight, scale, step);
-		naiveCudaHaarKernel << <DimGridSimple, DimBlock >> >(deviceIntegralImage, width, height, winWidth, winHeight, scale, step);
+		naiveCudaHaarKernel << <DimGridSimple, DimBlock >> >(deviceIntegralImage, width, height, winWidth, winHeight, scale, step, deviceResults, deviceResultsNum);
 
 		// for (int y = 0; y <= height - 1 - winHeight; y += step){
 		// 	for (int x = 0; x <= width - 1 - winWidth; x += step)
@@ -190,7 +213,37 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching naiveCudaHaarKernel!\n", cudaStatus);
 	}
 
+	cudaStatus = cudaMemcpy(&resultsNum, deviceResultsNum, sizeof(int), cudaMemcpyDeviceToHost);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy of integralImage failed!");
+	}
+
+	cudaStatus = cudaMemcpy(results, deviceResults, 100 * sizeof(rectBig_t), cudaMemcpyDeviceToHost);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy of integralImage failed!");
+	}
+
+	cudaFree(deviceResults);
+	cudaFree(deviceResultsNum);
 	cudaFree(deviceIntegralImage);
+
+	
+
+
+	for (int n = 0; n < resultsNum; n++){
+		int x = results[n].x;
+		int y = results[n].y;
+		int winWidth = results[n].w;
+		int winHeight = results[n].h;
+		for (int i = 0; i < winWidth; i++){
+			outputImage[3 * (x + i + (y)*width) + 1] = 255;
+			outputImage[3 * (x + i + (y + winHeight - 1)*width) + 1] = 255;
+		}
+		for (int j = 0; j < winHeight; j++){
+			outputImage[3 * (x + (y + j)*width) + 1] = 255;
+			outputImage[3 * (x + winWidth - 1 + (y + j)*width) + 1] = 255;
+		}
+	}
 
 	return 0;
 }

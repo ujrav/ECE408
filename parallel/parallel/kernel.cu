@@ -59,7 +59,7 @@ int main(){
 
 	deviceQuery();
 
-	image = readBMP("besties.bmp", width, height);
+	image = readBMP("Images/margaretBig.bmp", width, height);
 
 	cout << "Image dimensions: " << width << " x " << height << endl;
 
@@ -186,7 +186,7 @@ int haarCascade(unsigned char*  outputImage, const float* integralImg, int width
 			{
 
 				if (haarAtScale(x, y, scale, integralImg, width, height, winWidth, winHeight)){
-					printf("Haar succeeded at %d, %d, %d, %d\n", x, y, winWidth, winHeight);
+					//printf("Haar succeeded at %d, %d, %d, %d\n", x, y, winWidth, winHeight);
 					for (i = 0; i < winWidth; i++){
 						outputImage[3 * (x + i + (y)*width) + 1] = 255;
 						outputImage[3 * (x + i + (y + winHeight - 1)*width) + 1] = 255;

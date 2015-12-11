@@ -89,7 +89,7 @@ __global__ void naiveCudaHaarKernel(float* deviceIntegralImage, int width, int h
 			}
 
 		}
-		printf("Passed at originX: %d originY: %d\n", originX, originY);
+		//printf("Passed at originX: %d originY: %d\n", originX, originY);
 	}
 	return;
 

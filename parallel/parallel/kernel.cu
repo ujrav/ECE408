@@ -48,7 +48,7 @@ static feature_t *features;
 __device__ __constant__ stage_t deviceStages[FEATURENUM];
 __device__ __constant__ stageMeta_t deviceStagesMeta[STAGENUM];
 
-__global__ void CudaHaarAtScaleAdv(float* deviceIntegralImage, int width, int height, int winWidth, int winHeight, float scale, float step)
+__global__ void CudaHaarAtScaleAdv(float* deviceIntegralImage, int width, int height, int winWidth, int winHeight, float scale, float step, rectBig_t* deviceResults, int* deviceResultsNum)
 {
     int tx = threadIdx.x;
     int ty = threadIdx.y;
@@ -172,7 +172,12 @@ __global__ void CudaHaarAtScaleAdv(float* deviceIntegralImage, int width, int he
 				}
 
 				if (success){
-					printf("yay %d %d %d %d\n", winX, winY, winWidth, winHeight);
+					int old = atomicAdd(deviceResultsNum, 1);
+					deviceResults[old].x = winX;
+					deviceResults[old].y = winY;
+					deviceResults[old].w = winWidth;
+					deviceResults[old].h = winHeight;
+					//printf("yay %d %d %d %d\n", winX, winY, winWidth, winHeight);
 				}
 			}
 		}
@@ -408,7 +413,7 @@ int main(){
 	parseClassifierFlat("haarcascade_frontalface_alt.xml", stageNum, featureNum, stagesMeta, stagesFlat, features);
 	wbTime_stop(Compute, "Parsing Haar Classifier");
 
-	image = readBMP("besties.bmp", width, height);
+	image = readBMP("margaretBig.bmp", width, height);
 
 	wbTime_start(Compute, "Converting serial gray scale conversion");
 	gray = new float[width * height];
@@ -676,6 +681,11 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 	float scale;
 	cudaError_t cudaStatus;
 	float *deviceIntegralImage;
+	rectBig_t results[100];
+	rectBig_t *deviceResults;
+	int resultsNum = 0;
+	int *deviceResultsNum;
+
 
 	float scaleStart = scaleHeight < scaleWidth ? scaleHeight : scaleWidth;
 
@@ -692,11 +702,22 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 		fprintf(stderr, "cudaMalloc of integralImage failed!");
 	}
 
+	cudaStatus = cudaMalloc((void**)&deviceResults, 100 * sizeof(rectBig_t));
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc of deviceResults failed!");
+	}
+
+	cudaStatus = cudaMalloc((void**)&deviceResultsNum, sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc of deviceResults failed!");
+	}
+
 	// copy data to GPU memory
 	cudaStatus = cudaMemcpyToSymbol(deviceStagesMeta, stagesMeta, stageNum * sizeof(stageMeta_t), 0, cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy of StageMeta failed!");
 	}
+
 
 	cudaStatus = cudaMemcpyToSymbol(deviceStages, stagesFlat, featureNum * sizeof(stage_t), 0, cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
@@ -704,6 +725,11 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 	}
 
 	cudaStatus = cudaMemcpy(deviceIntegralImage, integralImage, height * width * sizeof(float), cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy of integralImage failed!");
+	}
+
+	cudaStatus = cudaMemcpy(deviceResultsNum, &resultsNum, sizeof(int), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy of integralImage failed!");
 	}
@@ -724,7 +750,7 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 		dim3 DimBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
 		printf("Kernel with dimensions %d x %d x %d launching for Scale %f\n", DimGrid.x, DimGrid.y, DimGrid.z, scale);
 
-		CudaHaarAtScaleAdv<<<DimGrid, DimBlock>>>(deviceIntegralImage, width, height, winWidth, winHeight, scale, step);
+		CudaHaarAtScaleAdv<<<DimGrid, DimBlock>>>(deviceIntegralImage, width, height, winWidth, winHeight, scale, step, deviceResults, deviceResultsNum);
 
 		// cudaDeviceSynchronize waits for the kernel to finish, and returns
 		// any errors encountered during the launch.
@@ -759,9 +785,32 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 		fprintf(stderr, "simpleCudaHaar launch failed: %s\n", cudaGetErrorString(cudaStatus));
 	}
 
-	
+	cudaStatus = cudaMemcpy(&resultsNum, deviceResultsNum, sizeof(int), cudaMemcpyDeviceToHost);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy of integralImage failed!");
+	}
+
+	cudaStatus = cudaMemcpy(results, deviceResults, 100 * sizeof(rectBig_t), cudaMemcpyDeviceToHost);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy of integralImage failed!");
+	}
 
 	cudaFree(deviceIntegralImage);
+
+	for (int n = 0; n < resultsNum; n++){
+		int x = results[n].x;
+		int y = results[n].y;
+		int winWidth = results[n].w;
+		int winHeight = results[n].h;
+		for (int i = 0; i < winWidth; i++){
+			outputImage[3 * (x + i + (y)*width) + 1] = 255;
+			outputImage[3 * (x + i + (y + winHeight - 1)*width) + 1] = 255;
+		}
+		for (int j = 0; j < winHeight; j++){
+			outputImage[3 * (x + (y + j)*width) + 1] = 255;
+			outputImage[3 * (x + winWidth - 1 + (y + j)*width) + 1] = 255;
+		}
+	}
 
 	return 0;
 }

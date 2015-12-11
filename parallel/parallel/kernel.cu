@@ -8,6 +8,7 @@
 #include "xmlparse.h"
 #include "haar.cuh"
 #include "wb.h"
+#include "integralImg.cuh"
 
 using namespace std;
 using namespace rapidxml;
@@ -43,104 +44,18 @@ __global__ void convertRGBToGrayScale(unsigned char *uCharInputImage, float *gra
 		float g = (float)(uCharInputImage[3*idx + 1]);
 		float b = (float)(uCharInputImage[3*idx + 2]);
 
-		grayOutputImage[idx] = (0.00117f*r + 0.0023f*g + 0.00045f*b); //(0.2989f*r + 0.5870f*g + 0.1140f*b) / 255.0f;
+		grayOutputImage[idx] = (0.2989f*r + 0.5870f*g + 0.1140f*b) / 255.0f;
 	}
 }
 
 
-//-------------------------------------------------------------------------
-// Parallel Scan Add Auxiliary Kernel (Part 3)
-//-------------------------------------------------------------------------
-__global__ void parallelScanAddAux(float *aux, float *output, int len) {
 
-	int tx = threadIdx.x;
-	int bdx = blockDim.x;
-	int bix = blockIdx.x;
-	int start = 2 * bdx*bix;
-	int idx = start + tx;
-
-	// add aux[x] to scan block x+1, ignoring block 0 since it's done
-	if (bix != 0)
-	{
-		if (idx<len)
-		{
-			output[idx] += aux[bix - 1];
-		}
-		if (idx + bdx<len)
-		{
-			output[idx + bdx] += aux[bix - 1];
-		}
-	}
-
-
-}
-
-//-------------------------------------------------------------------------
-// Parallel Scan Kernel (Part 1 & 2)
-//-------------------------------------------------------------------------
-__global__ void scanRow(float *input, float *output, float *aux, int len) {
-	// LECTURE METHOD with 2 reads and 2 writes
-	__shared__ float scanBlock[BLOCK_SIZE << 1];
-
-	int tx = threadIdx.x;
-	int bdx = blockDim.x;
-	int biy = blockIdx.y;
-	int bix = blockIdx.x;
-	int start = 2 * bdx*bix;
-	int ix = start + tx;
-
-	// global reads
-	scanBlock[tx] = ix<len ? input[biy*len + ix] : 0.0;
-	scanBlock[bdx + tx] = ix + bdx<len ? input[biy*len + ix + bdx] : 0.0;
-
-	// reduction phase
-	for (int stride = 1; stride <= bdx; stride <<= 1)
-	{
-		__syncthreads();
-		int index = (tx + 1)*stride * 2 - 1;
-		if (index<2 * bdx)
-		{
-			scanBlock[index] += scanBlock[index - stride];
-		}
-	}
-
-	// post reduction reverse phase
-	for (int stride = bdx >> 1; stride>0; stride >>= 1)
-	{
-		__syncthreads();
-		int index = (tx + 1)*stride * 2 - 1;
-		if (index + stride<2 * bdx)
-		{
-			scanBlock[index + stride] += scanBlock[index];
-		}
-	}
-
-	// global writes
-	__syncthreads();
-	if (ix<len)
-	{
-		output[biy*len + ix] = scanBlock[tx];
-	}
-
-	if (ix + bdx<len)
-	{
-		output[biy*len + ix + bdx] = scanBlock[tx + bdx];
-	}
-
-	// each thread block writes its entire sum (last element)
-	// into the auxiliary output according to its block ID
-	if (aux != NULL && tx == 0)
-	{
-		aux[bix] = scanBlock[2 * BLOCK_SIZE - 1];
-	}
-
-}
 
 int main(){
 	int width, height;
 	unsigned char *image;
 	float *gray, *cudaGray;
-	float *integralImg, *cudaIntegralImg;
+	float *integralImg;// *cudaIntegralImg;
 
 	deviceQuery();
 
@@ -152,13 +67,13 @@ int main(){
 	parseClassifierFlat("haarcascade_frontalface_alt.xml", stageNum, featureNum, stagesMeta, stagesFlat, features);
 	wbTime_stop(Compute, "Parsing Haar Classifier");
 
-	wbTime_start(Compute, "Converting serial gray scale conversion");
 	gray = new float[width * height];
+	wbTime_start(Compute, "Converting serial gray scale conversion");
 	convertGrayScale(image, gray, width, height);
 	wbTime_stop(Compute, "Converting serial gray scale conversion");
 
-	wbTime_start(Compute, "Converting CUDA gray scale conversion");
 	cudaGray = new float[width * height];
+	wbTime_start(Compute, "Converting CUDA gray scale conversion");
 	CudaGrayScale(image, cudaGray, width, height);
 	wbTime_stop(Compute, "Converting CUDA gray scale conversion");
 
@@ -166,33 +81,14 @@ int main(){
 	integralImg = integralImageCalc(cudaGray, width, height);
 	wbTime_stop(Compute, "Computing serial integral image");
 
-	/*
-	wbTime_start(Compute, "Computing CUDA integral image");
-	cudaIntegralImg = new float[width * height];
-	CudaIntegralImage(cudaGray, cudaIntegralImg, width, height);
-	wbTime_stop(Compute, "Computing CUDA integral image");
 
-
-	for (int i = 0; i < 10; ++i)
-	{
-		cout << "cudaGray: " << cudaGray[i] << " cudaIntegralImg: " << cudaIntegralImg[i] << " integralImg : " << integralImg[i] << endl;
-	}
-	*/
+	
 	//FILE *fp;
 
-	//fp = fopen("gray.txt", "w");
-	//for (i = 0; i < width; i++){
-	//	for (j = 0; j < height; j++){
-	//		fprintf(fp, "%f ", gray[i + j*width]);
-	//	}
-	//	fprintf(fp, "\n");
-	//}
-	//fclose(fp);
-
-	//fp = fopen("grayInt.txt", "w");
-	//for (i = 0; i < width; i++){
-	//	for (j = 0; j < height; j++){
-	//		fprintf(fp, "%f ", integralImg[i + j*width]);
+	//fp = fopen("integral.txt", "w");
+	//for (int i = 0; i < height; i++){
+	//	for (int j = 0; j < width; j++){
+	//		fprintf(fp, "%f ", integralImg[j + i*width]);
 	//	}
 	//	fprintf(fp, "\n");
 	//}
@@ -328,31 +224,31 @@ int haarAtScale(int winX, int winY, float scale, const float* integralImg, int i
 			feature = &(stages[sIdx][cIdx].feature);
 
 			// get black rectangle of feature fIdx
-			uint8_t rectX = (uint8_t)(feature->black.x * scale);
-			uint8_t rectY = (uint8_t)(feature->black.y * scale);
-			uint8_t rectWidth = (uint8_t)(feature->black.w * scale);
-			uint8_t rectHeight = (uint8_t)(feature->black.h * scale);
+			int rectX = (int)(feature->black.x * scale);
+			int rectY = (int)(feature->black.y * scale);
+			int rectWidth = (int)(feature->black.w * scale);
+			int rectHeight = (int)(feature->black.h * scale);
 			int8_t rectWeight = feature->black.weight;
 
 			float black = (float)rectWeight * rectSum(integralImg, imgWidth, imgHeight, winX + rectX, winY + rectY, rectWidth, rectHeight);
 			//printf("black x:%d y:%d w:%d h:%d\n", rectX, rectY, rectWidth, rectHeight);
 
 			// get white rectangle of feature fIdx
-			rectX = (uint8_t)(feature->white.x * scale);
-			rectY = (uint8_t)(feature->white.y * scale);
-			rectWidth = (uint8_t)(feature->white.w * scale);
-			rectHeight = (uint8_t)(feature->white.h * scale);
-			rectWeight = (uint8_t)(feature->white.weight);
+			rectX = (int)(feature->white.x * scale);
+			rectY = (int)(feature->white.y * scale);
+			rectWidth = (int)(feature->white.w * scale);
+			rectHeight = (int)(feature->white.h * scale);
+			rectWeight = (int)(feature->white.weight);
 
 			float white = (float)rectWeight * rectSum(integralImg, imgWidth, imgHeight, winX + rectX, winY + rectY, rectWidth, rectHeight);
 			//printf("white x:%d y:%d w:%d h:%d\n", rectX, rectY, rectWidth, rectHeight);
 
 			third = 0;
 			if (feature->third.weight){
-				rectX = (uint8_t)(feature->third.x * scale);
-				rectY = (uint8_t)(feature->third.y * scale);
-				rectWidth = (uint8_t)(feature->third.w * scale);
-				rectHeight = (uint8_t)(feature->third.h * scale);
+				rectX = (int)(feature->third.x * scale);
+				rectY = (int)(feature->third.y * scale);
+				rectWidth = (int)(feature->third.w * scale);
+				rectHeight = (int)(feature->third.h * scale);
 				rectWeight = feature->third.weight;
 				third = (float)rectWeight * rectSum(integralImg, imgWidth, imgHeight, winX + rectX, winY + rectY, rectWidth, rectHeight);
 			}
@@ -378,9 +274,6 @@ int haarAtScale(int winX, int winY, float scale, const float* integralImg, int i
 }
 
 
-
-
-
 int CudaGrayScale(unsigned char* inputImage, float* grayImage, int width, int height)
 {
 	cudaError_t cudaStatus;
@@ -403,7 +296,9 @@ int CudaGrayScale(unsigned char* inputImage, float* grayImage, int width, int he
 		fprintf(stderr, "cudaMalloc of deviceGrayImage failed!");
 	}
 
+	wbTime_start(Generic, "Copying BMP image from host to device");
 	cudaStatus = cudaMemcpy(deviceInputImage, inputImage, 3 * width * height * sizeof(unsigned char), cudaMemcpyHostToDevice);
+	wbTime_stop(Generic, "Copying BMP image from host to device");
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy of inputImage failed!");
 	}
@@ -415,7 +310,10 @@ int CudaGrayScale(unsigned char* inputImage, float* grayImage, int width, int he
 
 	convertRGBToGrayScale << <DimGrid, DimBlock >> >(deviceInputImage, deviceGrayImage, width, height);
 
+	//wbTime_start(Generic, "Copying gray image from device to host");
 	cudaStatus = cudaMemcpy(grayImage, deviceGrayImage, width * height * sizeof(float), cudaMemcpyDeviceToHost);
+	//wbTime_stop(Generic, "Copying gray image from device to host");
+
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy of deviceGrayImage failed!");
 	}
@@ -439,88 +337,6 @@ int CudaGrayScale(unsigned char* inputImage, float* grayImage, int width, int he
 	return 0;
 }
 
-int CudaIntegralImage(float* grayImage, float* integralImage, int width, int height)
-{
-	cudaError_t cudaStatus;
-	float *deviceInputImage;
-	float *deviceIntegralImage;
-	float *deviceAuxInput;
-	float *deviceAuxOutput;
-	int numElements; // number of elements in the list
-	int gridCols, gridRows;	// grid dimensions
-
-	cudaStatus = cudaSetDevice(0);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
-	}
-
-	numElements = width;
-	gridCols = ceil(numElements / float(SCAN_BLOCK_SIZE << 1));
-	gridRows = height;
-
-	//allocate GPU memory
-	wbCheck(cudaMalloc((void **)&deviceInputImage, width * height * sizeof(float)));
-	wbCheck(cudaMalloc((void **)&deviceIntegralImage, width * height * sizeof(float)));
-	wbCheck(cudaMalloc((void **)&deviceAuxInput, gridCols * sizeof(float)));
-	wbCheck(cudaMalloc((void **)&deviceAuxOutput, gridCols * sizeof(float)));
-
-	//cudaStatus = cudaMalloc((void**)&deviceInputImage, width * height * sizeof(float));
-	//if (cudaStatus != cudaSuccess) {
-	//	fprintf(stderr, "cudaMalloc of deviceInputImage failed!");
-	//}
-
-	//cudaStatus = cudaMalloc((void**)&deviceIntegralImage, width * height * sizeof(float));
-	//if (cudaStatus != cudaSuccess) {
-	//	fprintf(stderr, "cudaMalloc of deviceGrayImage failed!");
-	//}
-
-	cudaStatus = cudaMemcpy(deviceInputImage, grayImage, width * height * sizeof(float), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy of inputImage failed!");
-	}
-
-	dim3 DimGrid(gridCols, gridRows, 1);
-	dim3 DimBlock(SCAN_BLOCK_SIZE, 1, 1);
-	dim3 DimGrid2(1, 1, 1);
-
-	//for (int r = 0; r < height; ++r)
-	{
-		wbCheck(cudaMemset(deviceAuxInput, 0, gridCols * sizeof(float)));
-		wbCheck(cudaMemset(deviceAuxOutput, 0, gridCols * sizeof(float)));
-		//printf("Kernel with dimensions %d x %d x %d launching\n", DimGrid.x, DimGrid.y, DimGrid.z);
-
-		scanRow << < DimGrid, DimBlock >> > (deviceInputImage, deviceIntegralImage, deviceAuxInput, numElements);	// Part 1
-		wbCheck(cudaDeviceSynchronize());
-		scanRow << < DimGrid2, DimBlock >> > (deviceAuxInput, deviceAuxOutput, NULL, gridCols);					// Part 2
-		wbCheck(cudaDeviceSynchronize());
-		parallelScanAddAux << < DimGrid, DimBlock >> > (deviceAuxOutput, deviceIntegralImage, numElements);				// Part 3
-		wbCheck(cudaDeviceSynchronize());
-	}
-
-
-	cudaStatus = cudaMemcpy(integralImage, deviceIntegralImage, width * height * sizeof(float), cudaMemcpyDeviceToHost);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy of deviceGrayImage failed!");
-	}
-
-	// Check for any errors launching the kernel
-	cudaStatus = cudaGetLastError();
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "convertRGBToGrayScale launch failed: %s\n", cudaGetErrorString(cudaStatus));
-	}
-
-	// cudaDeviceSynchronize waits for the kernel to finish, and returns
-	// any errors encountered during the launch.
-	cudaStatus = cudaDeviceSynchronize();
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching convertRGBToGrayScale!\n", cudaStatus);
-	}
-
-	cudaFree(deviceIntegralImage);
-	cudaFree(deviceInputImage);
-
-	return 0;
-}
 
 int deviceQuery(){
 	int deviceCount;

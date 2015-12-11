@@ -10,6 +10,7 @@
 #define BLOCK_SIZE 32
 #define MASK_SIZE 20
 #define SCAN_BLOCK_SIZE 1024
+#define TILE_SIZE 32
 
 #define STAGENUM 22
 #define FEATURENUM 2135
@@ -30,7 +31,7 @@ int haarAtScale(int winX, int winY, float scale, const float* integralImage, int
 float* integralImageCalc(float* image, int width, int height);
 
 int CudaGrayScale(unsigned char* inputImage, float* grayImage, int width, int height);
-int CudaIntegralImage(float* grayImage, float* integralImage, int width, int height);
+
 
 
 

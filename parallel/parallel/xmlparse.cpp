@@ -2,7 +2,6 @@
 #include <iostream>
 #include "RapidXML\rapidxml.hpp"
 #include "RapidXML\rapidxml_utils.hpp"
-#include "types.h"
 #include "xmlparse.h"
 
 
@@ -67,9 +66,6 @@ int parseStages(xml_node<> *root, stage_t **stages, stageMeta_t*stagesMeta){
 	xml_node<> *internalStageNode;
 	int i = 0;
 	int j = 0;
-	int a;
-	int temp;
-	float tempF;
 	char *end;
 
 	if (root == NULL){
@@ -144,9 +140,6 @@ int parseStagesFlat(xml_node<> *root, stage_t *stages){
 	xml_node<> *internalStageNode;
 	int i = 0;
 	int j = 0;
-	int a;
-	int temp;
-	float tempF;
 	char *end;
 
 	if (root == NULL){
@@ -211,8 +204,6 @@ int parseStagesFlat(xml_node<> *root, stage_t *stages){
 
 int countStages(xml_node<> *root){
 	xml_node<> *featureNode;
-	xml_node<> *treeNode;
-	xml_node<> *stageNode;
 	int i = 0;
 	if (root == NULL){
 		return -1;

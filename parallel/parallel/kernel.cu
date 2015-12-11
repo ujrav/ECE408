@@ -59,7 +59,7 @@ int main(){
 
 	deviceQuery();
 
-	image = readBMP("Images/grad-med.bmp", width, height);
+	image = readBMP("Images/sw.bmp", width, height);
 
 	cout << "Image dimensions: " << width << " x " << height << endl;
 

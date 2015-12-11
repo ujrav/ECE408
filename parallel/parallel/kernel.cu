@@ -16,7 +16,10 @@ using namespace rapidxml;
 
 #define TILE_WIDTH 77
 #define TILE_HALO 19
+#define SHAREDMEM_SIZE 9216
+#define SHAREDMEM_WIDTH 96
 #define BLOCK_SIZE 32
+#define THREAD_NUM 1024
 #define MASK_SIZE 20
 #define THREAD_UTIL 9
 
@@ -28,6 +31,7 @@ int haarCascade(unsigned char*  outputImage, float const * image, int width, int
 int haarAtScale(int winX, int winY, float scale, const float* integralImage, int imgWidth, int imgHeight, int winWidth, int winHeight);
 float* integralImageCalc(float* integralImage, int width, int height);
 __device__ __host__ float rectSum(float const* image, int imWidth, int inHeight, int x, int y, int w, int h);
+__device__ __host__ float rectSumShared(float const* image, int imWidth, int inHeight, int x, int y, int w, int h);
 
 int CudaHaarCascade(unsigned char*  outputImage, const float* integralImg, int width, int height);
 int CudaGrayScale(unsigned char* inputImage, float* grayImage, int width, int height);
@@ -43,6 +47,138 @@ static feature_t *features;
 
 __device__ __constant__ stage_t deviceStages[FEATURENUM];
 __device__ __constant__ stageMeta_t deviceStagesMeta[STAGENUM];
+
+__global__ void CudaHaarAtScaleAdv(float* deviceIntegralImage, int width, int height, int winWidth, int winHeight, float scale, float step)
+{
+    int tx = threadIdx.x;
+    int ty = threadIdx.y;
+    int bx = blockIdx.x;
+    int by = blockIdx.y;
+    int tid = tx + ty*BLOCK_SIZE;
+    int x;
+    int y;
+	int imgX, imgY;
+	int winX, winY;
+	int winXIdx, winYIdx;
+	int sIdx, cIdx;
+	int i, j;
+    float originX;
+    float originY;
+    int stageIndex;
+    float a, b, c, d;
+    int rectX;
+    int rectY;
+    int rectWidth;
+    int rectHeight;
+    int rectWeight;
+    float black;
+    float white;
+    float third;
+    bool success;
+
+	float featureThreshold;
+	feature_t *feature;
+	float sum;
+	float featureSum;
+	float stageThreshold;
+
+	__shared__ float intImg[SHAREDMEM_SIZE];
+
+
+    originX = ((float)bx)*((float)TILE_WIDTH)*scale;
+	originY = ((float)by)*((float)TILE_WIDTH)*scale;
+
+	for (i = 0; i < 9; i++){{
+			x =  ((tid + i*THREAD_NUM)%SHAREDMEM_WIDTH);
+			y =  ((tid + i*THREAD_NUM)/SHAREDMEM_WIDTH);
+			imgX = originX + scale*( x ) - 1;
+			imgY = originY + scale*( y ) - 1;
+			if (imgX < width && imgY < height && imgX >= 0 && imgY >= 0){
+				intImg[x + y*SHAREDMEM_WIDTH] = deviceIntegralImage[imgX + imgY*width];
+			}
+			else{
+				intImg[x + y*SHAREDMEM_WIDTH] = 0;
+			}
+		}
+	}
+
+	for (i = 0; i < 3; i++){
+		for (j = 0; j < 3; j++){
+			winXIdx = tx + i*BLOCK_SIZE;
+			winYIdx = ty + j*BLOCK_SIZE;
+			winX = originX + step*(winXIdx);
+			winY = originY + step*(winYIdx);
+
+			if (winX <= width - winWidth && winY <= height - winWidth && 
+				winX < ((float)bx + 1.0)*((float)TILE_WIDTH)*scale - winWidth && 
+				winY < ((float)by + 1.0)*((float)TILE_WIDTH)*scale - winHeight){
+				success = true;
+				for (sIdx = 0; sIdx < STAGENUM; sIdx++){
+					stageThreshold = deviceStagesMeta[sIdx].threshold;
+					featureSum = 0;
+					for (cIdx = 0; cIdx < deviceStagesMeta[sIdx].size; cIdx++){
+						stageIndex = deviceStagesMeta[sIdx].start + cIdx;
+
+						featureThreshold = deviceStages[stageIndex].threshold;
+						feature = &(deviceStages[stageIndex].feature);
+
+						// get black rectangle of feature fIdx
+						rectX = (feature->black.x);
+						rectY = (feature->black.y);
+						rectWidth = (feature->black.w);
+						rectHeight = (feature->black.h);
+						rectWeight = feature->black.weight;
+
+						black = rectWeight * rectSumShared(intImg, SHAREDMEM_WIDTH, SHAREDMEM_WIDTH, winXIdx + rectX, winYIdx + rectY, rectWidth, rectHeight);
+
+						//printf("x %u y %u w %u h %u weight %d winXIdx %d winYIdx %d\n", rectX, rectY, rectWidth, rectHeight, rectWeight, winXIdx, winYIdx);
+
+						// get white rectangle of feature fIdx
+						rectX = (feature->white.x);
+						rectY = (feature->white.y);
+						rectWidth = (feature->white.w);
+						rectHeight = (feature->white.h);
+						rectWeight = (feature->white.weight);
+
+						white = (float)rectWeight * rectSumShared(intImg, SHAREDMEM_WIDTH, SHAREDMEM_WIDTH, winXIdx + rectX, winYIdx + rectY, rectWidth, rectHeight);
+
+						third = 0;
+						if (feature->third.weight){
+							rectX = feature->third.x;
+							rectY = feature->third.y;
+							rectWidth = feature->third.w;
+							rectHeight = feature->third.h;
+							rectWeight = feature->third.weight;
+							third = (float)rectWeight * rectSumShared(intImg, SHAREDMEM_WIDTH, SHAREDMEM_WIDTH, winXIdx + rectX, winYIdx + rectY, rectWidth, rectHeight);
+						}
+
+						sum = (black + white + third) / ((float)(winWidth * winHeight));
+
+						//printf("sum: %f threshold: %f featureSum: %f right: %f left: %f\n", sum, featureThreshold, featureSum, deviceStages[stageIndex].rightWeight, deviceStages[stageIndex].leftWeight);
+						//printf("i %d j %d \n", i, j);
+						//printf("black: %f white: %f third: %f\n", black, white, third);
+						
+						if (sum > featureThreshold)
+							featureSum += deviceStages[stageIndex].rightWeight;
+						else
+							featureSum += deviceStages[stageIndex].leftWeight;
+
+					}
+
+					if (featureSum < stageThreshold){
+						success = false;
+						break;
+					}
+				}
+
+				if (success){
+					printf("yay %d %d %d %d\n", winX, winY, winWidth, winHeight);
+				}
+			}
+		}
+	}
+	    
+}
 
 __global__ void CudaHaarAtScale(float* deviceIntegralImage, int width, int height, int winWidth, int winHeight, float scale, float step)
 {
@@ -149,9 +285,9 @@ __global__ void CudaHaarAtScale(float* deviceIntegralImage, int width, int heigh
 					}
 				}
 
-				//if (success){
-					//printf("yay %d %d %d %d\n", winX, winY, winWidth, winHeight);
-				//}
+				if (success){
+					printf("yay %d %d %d %d\n", winX, winY, winWidth, winHeight);
+				}
 			}
 		}
 	}
@@ -263,6 +399,8 @@ int main(){
 	unsigned char *image;
 	float *gray, *cudaGray;
 	float *integralImg;
+	FILE* fp;
+	int i, j;
 
 	deviceQuery();
 
@@ -290,6 +428,15 @@ int main(){
 	if (CudaHaarCascade(image, integralImg, width, height) == -1)
 		cout << "Cascade failed." << endl;
 	wbTime_stop(Compute, "Performing CUDA Haar Cascade");
+
+	fp = fopen("grayInt.txt", "w");
+	for (i = 0; i < width; i++){
+		for (j = 0; j < height; j++){
+			fprintf(fp, "%f ", integralImg[i + j*width]);
+		}
+		fprintf(fp, "\n");
+	}
+	fclose(fp);
 
 	writeBMP("output.bmp", image, width, height);
 
@@ -488,6 +635,40 @@ __device__ __host__ float rectSum(const float* integralImage, int imWidth, int i
 	return (float)(d - c - b + a);
 }
 
+__device__ __host__ float rectSumShared(const float* integralImage, int imWidth, int imHeight, int x, int y, int w, int h){
+	float a, b, c, d;
+
+	if (x  < 0 || y < 0){
+		a = 0;
+	}
+	else{
+		a = integralImage[(x) + (y) * imWidth];
+	}
+
+	if (x + w < 0 || y < 0){
+		b = 0;
+	}
+	else{
+		b = integralImage[(x + w) + (y)*imWidth];
+	}
+
+	if (x < 0 || y + h < 0){
+		c = 0;
+	}
+	else{
+		c = integralImage[(x) + (y + h) * imWidth];
+	}
+
+	if (x + w < 0 || y + h < 0){
+		d = 0;
+	}
+	else{
+		d = integralImage[(x + w) + (y + h) * imWidth];
+	}
+
+	return (float)(d - c - b + a);
+}
+
 int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int width, int height){
 	float scaleWidth = ((float)width) / 20.0f;
 	float scaleHeight = ((float)height) / 20.0f;
@@ -532,7 +713,8 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 		scale = scaleStart*(float)powf(1.0f / 1.2f, (float)(sIdx));
 		//cout << "Scale: " << scale << endl;
 
-		step = scale > 2.0 ? scale : 2;
+		//step = scale > 2.0 ? scale : 2;
+		step = scale;
 
 		int winWidth = (int)(20 * scale);
 		int winHeight = (int)(20 * scale);
@@ -540,9 +722,17 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 		dim3 DimGrid(ceil(width / (TILE_WIDTH * scale)), ceil(height / (TILE_WIDTH * scale)), 1);
 		dim3 DimGridSimple(1,1, 1);
 		dim3 DimBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-		//printf("Kernel with dimensions %d x %d x %d launching for Scale %f\n", DimGrid.x, DimGrid.y, DimGrid.z, scale);
+		printf("Kernel with dimensions %d x %d x %d launching for Scale %f\n", DimGrid.x, DimGrid.y, DimGrid.z, scale);
 
-		CudaHaarAtScale<<<DimGrid, DimBlock>>>(deviceIntegralImage, width, height, winWidth, winHeight, scale, step);
+		CudaHaarAtScaleAdv<<<DimGrid, DimBlock>>>(deviceIntegralImage, width, height, winWidth, winHeight, scale, step);
+
+		// cudaDeviceSynchronize waits for the kernel to finish, and returns
+		// any errors encountered during the launch.
+		cudaStatus = cudaDeviceSynchronize();
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching simpleCudaHaar! %s \n", cudaStatus, cudaGetErrorString(cudaStatus));
+		}
+
 		//simpleCudaHaar << <DimGridSimple, DimBlock >> >(deviceIntegralImage, width, height, winWidth, winHeight, scale, step);
 
 		// for (int y = 0; y <= height - 1 - winHeight; y += step){
@@ -569,12 +759,7 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 		fprintf(stderr, "simpleCudaHaar launch failed: %s\n", cudaGetErrorString(cudaStatus));
 	}
 
-	// cudaDeviceSynchronize waits for the kernel to finish, and returns
-	// any errors encountered during the launch.
-	cudaStatus = cudaDeviceSynchronize();
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching simpleCudaHaar!\n", cudaStatus);
-	}
+	
 
 	cudaFree(deviceIntegralImage);
 

@@ -59,7 +59,7 @@ int main(){
 
 	deviceQuery();
 
-	image = readBMP("Images/margaretBig.bmp", width, height);
+	image = readBMP("Images/grad-med.bmp", width, height);
 
 	cout << "Image dimensions: " << width << " x " << height << endl;
 
@@ -110,7 +110,7 @@ int main(){
 		cout << "Cascade failed." << endl;
 	wbTime_stop(Compute, "Performing serial Haar Cascade");
 
-	writeBMP("output.bmp", image, width, height);
+	writeBMP("Images/output.bmp", image, width, height);
 
 	// Free my people
 	for (int s = 0; s < STAGENUM; ++s)
@@ -296,9 +296,9 @@ int CudaGrayScale(unsigned char* inputImage, float* grayImage, int width, int he
 		fprintf(stderr, "cudaMalloc of deviceGrayImage failed!");
 	}
 
-	wbTime_start(Generic, "Copying BMP image from host to device");
+	//wbTime_start(Generic, "Copying BMP image from host to device");
 	cudaStatus = cudaMemcpy(deviceInputImage, inputImage, 3 * width * height * sizeof(unsigned char), cudaMemcpyHostToDevice);
-	wbTime_stop(Generic, "Copying BMP image from host to device");
+	//wbTime_stop(Generic, "Copying BMP image from host to device");
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy of inputImage failed!");
 	}

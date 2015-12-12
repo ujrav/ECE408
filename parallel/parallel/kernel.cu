@@ -54,15 +54,15 @@ __global__ void convertRGBToGrayScale(unsigned char *uCharInputImage, float *gra
 int main(){
 	int width, height;
 	unsigned char *image;
-	unsigned char *imageSerial;
+	unsigned char *imageParallel;
 	float *gray, *cudaGray;
 	float *integralImg;// *cudaIntegralImg;
 
 	deviceQuery();
 
-	image = readBMP("Images/besties.bmp", width, height);
-	imageSerial = new unsigned char[width * height * 3];
-	memcpy(imageSerial, image, width*height * 3);
+	image = readBMP("Images/sw.bmp", width, height);
+	imageParallel = new unsigned char[width * height * 3];
+	memcpy(imageParallel, image, width*height * 3);
 
 	cout << "Image dimensions: " << width << " x " << height << endl;
 
@@ -98,11 +98,11 @@ int main(){
 	//fclose(fp);
 
 	wbTime_start(Compute, "Performing CUDA Haar Cascade");
-	if (CudaHaarCascade(image, integralImg, width, height) == -1)
+	if (CudaHaarCascade(imageParallel, integralImg, width, height) == -1)
 		cout << "Cascade failed." << endl;
 	wbTime_stop(Compute, "Performing CUDA Haar Cascade");
 
-	writeBMP("Images/output.bmp", image, width, height);
+	writeBMP("Images/output.bmp", imageParallel, width, height);
 
 	delete stagesMeta;
 
@@ -111,11 +111,11 @@ int main(){
 	wbTime_stop(Compute, "Parsing Haar Classifier");
 
 	wbTime_start(Compute, "Performing serial Haar Cascade");
-	if (haarCascade(imageSerial, integralImg, width, height) == -1)
+	if (haarCascade(image, integralImg, width, height) == -1)
 		cout << "Cascade failed." << endl;
 	wbTime_stop(Compute, "Performing serial Haar Cascade");
 
-	writeBMP("Images/outputSerial.bmp", imageSerial, width, height);
+	writeBMP("Images/outputSerial.bmp", image, width, height);
 
 	// Free my people
 	for (int s = 0; s < STAGENUM; ++s)
@@ -131,7 +131,7 @@ int main(){
 	delete[] gray;
 	delete[] integralImg;
 	delete[] image;
-	delete[] imageSerial;
+	delete[] imageParallel;
 
 	return 0;
 }

@@ -1,9 +1,19 @@
 ECE 408 FA15 Final Project - Parallelizing Face Detection via Haar Classifiers using CUDA
 =========================
 
-Umberto Ravaioli and Sharon Tang
+## Umberto Ravaioli and Sharon Tang
 
-## What You Need To Run Our Project on Windows (not tested on Linux/Unix)
+Welcome to our ECE 408 Applied Parallel Programming final project repository.
+
+The goal of this project was to speed up the process of face detection using CUDA and the parallelization techniques
+we discussed in our classes. We first implemented our own serial version of the algorithm as a benchmark to test our
+parallelized program against. We then proceeded to apply various methods of parallelization to the Haar Cascading
+process with the goal of achieving a significant speedup from the serial version.
+
+The master branch of our repository contains our most recent code. Feel free to grab it and play around with it yourself.
+
+
+## What You Need To Run Our Project on Windows 7, 8, or 10 (not tested on Linux/Unix)
 
 ###A CUDA-capable GPU
 

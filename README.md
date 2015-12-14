@@ -35,12 +35,13 @@ Grab code from the master branch
 $ git clone https://github.com/ujrav/ECE408.git ece408
 ~~~
 
-Navigate to the Visual Studios Project
+Navigate to the Visual Studios Project file.
+
 ~~~
 $ cd ../ece408/parallel/parallel
 ~~~
 
-Find "parallel.vcxproj" and open in Visual Studios.
+Find "parallel.vcxproj" and open it in Visual Studios.
 
 ---
 
@@ -52,9 +53,9 @@ In the function main of "kernel.cu", there is a line to change the image input.
 image = readBMP("Images/<name>.bmp", width, height);
 ~~~
 
-Our program is only designed to read BMP images. You can run the image tests already provided in the Images folder
-or you can create your own. Directions on creating usable test images are found below. Please limit the image size
-to no more than 1000x1000.
+Our program is only capable of reading BMP images at the moment. You can run the image tests already provided in
+the Images folder or you can create your own. Directions on creating usable test images are found below. Please
+limit the image size to no more than 1000x1000.
 
 Hit R7 or Click on Build > Build Solution and wait for it to compile. (There will be some warnings about the RapidXML file).
 

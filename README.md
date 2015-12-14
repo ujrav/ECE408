@@ -3,7 +3,7 @@ ECE 408 FA15 Final Project - Parallelizing Face Detection via Haar Classifiers u
 
 Umberto Ravaioli and Sharon Tang
 
-## Setting Up Our Project to Run on Windows Visual Studios (not tested for Linux/Unix)
+## What You Need To Run Our Project on Windows (not tested on Linux/Unix)
 
 ###A CUDA-capable GPU
 
@@ -36,7 +36,7 @@ Find "parallel.vcxproj" and open in Visual Studios.
 
 ## Compiling the CUDA project and running the program
 
-In the function main of kernel.cu, there is a line to change the image input.
+In the function main of "kernel.cu", there is a line to change the image input.
 
 ~~~
 image = readBMP("Images/<name>.bmp", width, height);
@@ -51,6 +51,7 @@ Hit R7 or Click on Build > Build Solution and wait for it to compile. (There wil
 Once it is done, hit Ctrl+F5 to run the program.
 
 When completed, there should be two image outputs in the Image folder: "Images/output.bmp" and "Images/outputSerial.bmp".
+Open them and check to make sure green boxes have been drawn around the human faces in the image.
 
 ---
 

@@ -23,7 +23,12 @@ The master branch of our repository contains our most recent code. Feel free to 
 ###CUDA Toolkit
 [Download CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit)
 
-[Read more from NVIDIA if you are having difficulties with running any CUDA project on Windows or Visual Studios](http://docs.nvidia.com/cuda/cuda-getting-started-guide-for-microsoft-windows/index.html#introduction)
+---
+
+## Setting up CUDA with Visual Studios
+
+Refer to the following:
+[From NVIDIA](http://docs.nvidia.com/cuda/cuda-getting-started-guide-for-microsoft-windows/index.html#introduction)
 
 [More directions on setting up CUDA with Visual Studios](http://cuda-programming.blogspot.com/2013/01/installation-process-how-to-install.html)
 
@@ -68,7 +73,7 @@ Open them and check to make sure green boxes have been drawn around the human fa
 
 ---
 
-## Creating usable images for the program.
+## Creating usable images for the program
 
 Take any image you want of any format of your choosing. Limit the size to at most 1000x1000 resolution.
 

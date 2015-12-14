@@ -1,7 +1,3 @@
-#include <stdio.h>
-#include <iostream>
-#include "RapidXML\rapidxml.hpp"
-#include "RapidXML\rapidxml_utils.hpp"
 #include "xmlparse.h"
 
 

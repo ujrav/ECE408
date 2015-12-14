@@ -11,6 +11,13 @@ struct rect_t{
 	int8_t weight;
 };
 
+struct rectBig_t{
+	int x;
+	int y;
+	int w;
+	int h;
+};
+
 struct feature_t{
 	rect_t black;
 	rect_t white;
@@ -30,4 +37,4 @@ struct stageMeta_t{
 	float threshold;
 };
 
-#endif
+#endif TYPES_H

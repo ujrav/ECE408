@@ -1,5 +1,3 @@
-#include <stdio.h>
-#include <iostream>
 #include "bmp.h"
 
 using namespace std;

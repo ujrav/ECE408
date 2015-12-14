@@ -25,6 +25,8 @@ The master branch of our repository contains our most recent code. Feel free to 
 
 [Read more from NVIDIA if you are having difficulties with running any CUDA project on Windows or Visual Studios](http://docs.nvidia.com/cuda/cuda-getting-started-guide-for-microsoft-windows/index.html#introduction)
 
+[More directions on setting up CUDA with Visual Studios](http://cuda-programming.blogspot.com/2013/01/installation-process-how-to-install.html)
+
 ---
 
 ## Get our code from Github

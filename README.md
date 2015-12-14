@@ -46,17 +46,19 @@ Our program is only designed to read BMP images. You can run the image tests alr
 or you can create your own. Directions on creating usable test images are found below. Please limit the image size
 to no more than 1000x1000.
 
-Hit R7 or Click on Build->Build Solution and wait for it to compile. (There will be some warnings about the RapidXML file).
+Hit R7 or Click on Build > Build Solution and wait for it to compile. (There will be some warnings about the RapidXML file).
 
 Once it is done, hit Ctrl+F5 to run the program.
 
-When completed, there should be two image outputs in the Image folder: output.bmp and outputSerial.bmp.
+When completed, there should be two image outputs in the Image folder: "Images/output.bmp" and "Images/outputSerial.bmp".
+
+---
 
 ## Creating usable images for the program.
 
-### Take any image you want of any format of your choosing. Limit the size to at most 1000x1000 resolution.
+Take any image you want of any format of your choosing. Limit the size to at most 1000x1000 resolution.
 
-### Convert the image to BMP (24-bit). If on Windows, open the image in Microsoft Paint. Click File > Save As > Select BMP and save it
+Convert the image to BMP (24-bit). If on Windows, open the image in Microsoft Paint. Click File > Save As > Select BMP and save it
 into the Images folder.
 
-### Your image should be ready to be run by the program!
+Your image should be ready to be run by the program!

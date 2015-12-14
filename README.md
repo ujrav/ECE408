@@ -27,8 +27,27 @@ The master branch of our repository contains our most recent code. Feel free to 
 
 ## Setting up CUDA with Visual Studios
 
-Refer to the following:
-[From NVIDIA](http://docs.nvidia.com/cuda/cuda-getting-started-guide-for-microsoft-windows/index.html#introduction)
+### Make sure your computer has a CUDA-capable GPU
+
+Check your computer's graphics card model.
+
+Then go to [NVIDIA's list of CUDA enabled GPUs](https://developer.nvidia.com/cuda-gpus) to see if yours is on the list.
+
+### Install Visual Studios (we installed VS Community 2013, linked above)
+
+### Install your latest [NVIDIA Driver](http://www.nvidia.com/Download/index.aspx?lang=en-us).
+
+Remember to restart your computer after installation.
+
+### Install the CUDA Toolkit (v7.5 for us) and SDK
+
+Make sure to install CUDA Visual Studio Integration.
+
+
+Refer to the following if you run into issues:
+[CUDA Getting Started Guide for Windows](http://docs.nvidia.com/cuda/cuda-getting-started-guide-for-microsoft-windows/index.html#introduction)
+
+[NVIDIA Guide](http://developer.download.nvidia.com/compute/cuda/6_5/rel/docs/CUDA_Getting_Started_Windows.pdf)
 
 [More directions on setting up CUDA with Visual Studios](http://cuda-programming.blogspot.com/2013/01/installation-process-how-to-install.html)
 

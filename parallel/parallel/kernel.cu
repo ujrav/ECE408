@@ -56,11 +56,11 @@ int main(){
 	unsigned char *image;
 	unsigned char *imageParallel;
 	float *gray, *cudaGray;
-	float *integralImg;// *cudaIntegralImg;
+	float *integralImg;
 
 	deviceQuery();
 
-	image = readBMP("Images/sw.bmp", width, height);
+	image = readBMP("Images/besties.bmp", width, height);
 	imageParallel = new unsigned char[width * height * 3];
 	memcpy(imageParallel, image, width*height * 3);
 
@@ -84,19 +84,6 @@ int main(){
 	integralImg = integralImageCalc(cudaGray, width, height);
 	wbTime_stop(Compute, "Computing serial integral image");
 
-
-	
-	//FILE *fp;
-
-	//fp = fopen("integral.txt", "w");
-	//for (int i = 0; i < height; i++){
-	//	for (int j = 0; j < width; j++){
-	//		fprintf(fp, "%f ", integralImg[j + i*width]);
-	//	}
-	//	fprintf(fp, "\n");
-	//}
-	//fclose(fp);
-
 	wbTime_start(Compute, "Performing CUDA Haar Cascade");
 	if (CudaHaarCascade(imageParallel, integralImg, width, height) == -1)
 		cout << "Cascade failed." << endl;
@@ -104,7 +91,7 @@ int main(){
 
 	writeBMP("Images/output.bmp", imageParallel, width, height);
 
-	delete stagesMeta;
+	delete[] stagesMeta;
 
 	wbTime_start(Compute, "Parsing Haar Classifier");
 	parseClassifier("haarcascade_frontalface_alt.xml", stageNum, stagesMeta, stages, features);
@@ -302,9 +289,7 @@ int CudaGrayScale(unsigned char* inputImage, float* grayImage, int width, int he
 		fprintf(stderr, "cudaMalloc of deviceGrayImage failed!");
 	}
 
-	//wbTime_start(Generic, "Copying BMP image from host to device");
 	cudaStatus = cudaMemcpy(deviceInputImage, inputImage, 3 * width * height * sizeof(unsigned char), cudaMemcpyHostToDevice);
-	//wbTime_stop(Generic, "Copying BMP image from host to device");
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy of inputImage failed!");
 	}
@@ -316,9 +301,7 @@ int CudaGrayScale(unsigned char* inputImage, float* grayImage, int width, int he
 
 	convertRGBToGrayScale << <DimGrid, DimBlock >> >(deviceInputImage, deviceGrayImage, width, height);
 
-	//wbTime_start(Generic, "Copying gray image from device to host");
 	cudaStatus = cudaMemcpy(grayImage, deviceGrayImage, width * height * sizeof(float), cudaMemcpyDeviceToHost);
-	//wbTime_stop(Generic, "Copying gray image from device to host");
 
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy of deviceGrayImage failed!");

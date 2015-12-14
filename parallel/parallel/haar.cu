@@ -170,35 +170,12 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 		int winWidth = (int)(20 * scale);
 		int winHeight = (int)(20 * scale);
 
-		//dim3 DimGrid(width / ((int)(((float)TILE_DIVISON_WIDTH) * scale)), height / ((int)(((float)TILE_DIVISON_WIDTH) * scale)), 1);
-		//if (width % ((int)(((float)TILE_DIVISON_WIDTH) * scale))) DimGrid.x++;
-		//if (height % ((int)(((float)TILE_DIVISON_WIDTH) * scale))) DimGrid.y++;
-
 		dim3 DimGridSimple((width - winWidth) / (step * 32) + 1, (height - winHeight) / (step * 32) + 1, 1);
 		dim3 DimBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
 
 		//printf("naiveCudaHaarKernel with dimensions %d x %d x %d launching\n", DimGridSimple.x, DimGridSimple.y, DimGridSimple.z);
 
-		//CudaHaarAtScale<<<DimGrid, DimBlock>>>(deviceIntegralImage, width, height, winWidth, winHeight, scale, step);
 		naiveCudaHaarKernel << <DimGridSimple, DimBlock >> >(deviceIntegralImage, width, height, winWidth, winHeight, scale, step, deviceResults, deviceResultsNum);
-
-		// for (int y = 0; y <= height - 1 - winHeight; y += step){
-		// 	for (int x = 0; x <= width - 1 - winWidth; x += step)
-		// 	{
-
-		// 		if (haarAtScale(x, y, scale, integralImg, width, height, winWidth, winHeight)){
-		// 			printf("Haar succeeded at %d, %d, %d, %d\n", x, y, winWidth, winHeight);
-		// 			for (i = 0; i < winWidth; i++){
-		// 				outputImage[3 * (x + i + (y)*width) + 1] = 255;
-		// 				outputImage[3 * (x + i + (y + winHeight - 1)*width) + 1] = 255;
-		// 			}
-		// 			for (j = 0; j < winHeight; j++){
-		// 				outputImage[3 * (x + (y + j)*width) + 1] = 255;
-		// 				outputImage[3 * (x + winWidth - 1 + (y + j)*width) + 1] = 255;
-		// 			}
-		// 		}
-		// 	}
-		// }
 	}
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
@@ -226,9 +203,6 @@ int CudaHaarCascade(unsigned char* outputImage, const float* integralImage, int 
 	cudaFree(deviceResults);
 	cudaFree(deviceResultsNum);
 	cudaFree(deviceIntegralImage);
-
-	
-
 
 	for (int n = 0; n < resultsNum; n++){
 		int x = results[n].x;
